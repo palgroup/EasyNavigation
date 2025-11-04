@@ -32,6 +32,10 @@ public struct ViewNavigationWrapper: View {
         self.router = Router(parent: parent, root: content)
     }
     
+    public init(router: Router) {
+        self._router = State(initialValue: router)
+    }
+    
     public var body: some View {
         NavigationStack(path: $router.path) {
             router.root()
@@ -53,22 +57,20 @@ public struct ViewNavigationWrapper: View {
                 .toolbar(.hidden, for: .navigationBar)
         }
         .fullScreenCover(item: $router.fullScreenDestination, onDismiss: {
-            router.operateDismiss()
+            router.onFullScreenDismiss?()
+            router.onFullScreenDismiss = nil
         }) { wrapper in
-            ViewNavigationWrapper(parent: router) {
-                wrapper.destination
-            }
-            .environment(createNavigationInformation(isPushed: false))
-            .toolbar(.hidden, for: .navigationBar)
+            ViewNavigationWrapper(router: wrapper)
+                .environment(createNavigationInformation(isPushed: false))
+                .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(item: $router.sheetDestination, onDismiss: {
-            router.operateDismiss()
+            router.onSheetDismiss?()
+            router.onSheetDismiss = nil
         }) { wrapper in
-            ViewNavigationWrapper(parent: router) {
-                wrapper.destination
-            }
-            .environment(createNavigationInformation(isPushed: false))
-            .toolbar(.hidden, for: .navigationBar)
+            ViewNavigationWrapper(router: wrapper)
+                .environment(createNavigationInformation(isPushed: false))
+                .toolbar(.hidden, for: .navigationBar)
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
@@ -79,6 +81,7 @@ public struct ViewNavigationWrapper: View {
             router.sheetDestination = nil
             routerStack.pop(router)
         }
+        .id(router.id)
     }
     
     private func createNavigationInformation(isPushed: Bool) -> NavigationInformations {

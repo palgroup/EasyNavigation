@@ -9,23 +9,20 @@ import SwiftUI
 
 @MainActor
 @Observable
-public class Router: @unchecked Sendable {
+public class Router: Identifiable {
     var root: () -> AnyView
     var path: [DestinationWrapper] = []
-    var fullScreenDestination: DestinationWrapper?
-    var sheetDestination: DestinationWrapper?
-    
+    var fullScreenDestination: Router?
     @ObservationIgnored
-    private var onPresentedDismiss: (() -> Void)?
+    var onFullScreenDismiss: (() -> Void)?
+    var sheetDestination: Router?
+    @ObservationIgnored
+    var onSheetDismiss: (() -> Void)?
     
-    // Added for animated root replacement
     var rootViewID: UUID = UUID()
 
     @ObservationIgnored
     weak var parent: Router?
-    @ObservationIgnored
-    let hasRoot: Bool
-    
     // Task management
     @ObservationIgnored
     private var isExecutingOperation = false
@@ -79,7 +76,6 @@ public class Router: @unchecked Sendable {
             AnyView(root())
         }
         self.rootViewID = UUID() // Initialize rootViewID
-        self.hasRoot = false
     }
     
     // MARK: - Navigation API
@@ -141,15 +137,7 @@ public class Router: @unchecked Sendable {
             }
         }
     }
-    
-    func operateDismiss() {
-        onPresentedDismiss?()
-        
-        executeOperation { [weak self] in
-            self?.onPresentedDismiss = nil
-        }
-    }
-    
+
     public func pushAndRemoveSelf<Content: View>(@ViewBuilder _ destination: @escaping () -> Content) {
         // Check current path state to decide strategy. Router is @MainActor.
         if self.path.isEmpty {
@@ -191,9 +179,14 @@ public class Router: @unchecked Sendable {
     
     // MARK: - Sheets & Covers
     public func present<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
-        print("[Router] Present called. Attempting to present: \(type(of: destination()))") // Hangi view'ı present etmeye çalıştığımızı loglayalım.
-        executeOperation { [weak self] in
-            self?.sheetDestination = nil // Ensure only one modal type is active
+        guard sheetDestination == nil else {
+            print("[Router] fullscreen presentation requested, but a sheet is already presented.")
+            return
+        }
+        
+        guard fullScreenDestination == nil else {
+            print("[Router] fullscreen presentation requested, but a full screen cover is already presented.")
+            return
         }
         
         executeOperation { [weak self] in
@@ -206,8 +199,8 @@ public class Router: @unchecked Sendable {
             )
 
             print("[Router] Executing operation for present. Current fullScreenDestination: \(String(describing: self.fullScreenDestination))")
-            self.onPresentedDismiss = onDismiss
-            self.fullScreenDestination = wrapper
+            self.onFullScreenDismiss = onDismiss
+            self.fullScreenDestination = Router(parent: self, root: destination)
 
             print("[Router] fullScreenDestination set to wrapper with id: \(wrapper.id). View type: \(type(of: wrapper.destination))")
         }
@@ -215,8 +208,14 @@ public class Router: @unchecked Sendable {
     
     public func sheet<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
         
-        executeOperation { [weak self] in
-            self?.fullScreenDestination = nil
+        guard sheetDestination == nil else {
+            print("[Router] Sheet presentation requested, but a sheet is already presented.")
+            return
+        }
+        
+        guard fullScreenDestination == nil else {
+            print("[Router] Sheet presentation requested, but a full screen cover is already presented.")
+            return
         }
         
         executeOperation { [weak self] in
@@ -224,8 +223,9 @@ public class Router: @unchecked Sendable {
             let wrapper = DestinationWrapper(
                 destination: AnyView(destination())
             )
-            onPresentedDismiss = onDismiss
-            sheetDestination = wrapper
+            
+            self.onSheetDismiss = onDismiss
+            self.sheetDestination = Router(parent: self, root: destination)
         }
     }
     
@@ -258,9 +258,9 @@ public class Router: @unchecked Sendable {
         executeOperation { [weak self] in
             guard let self = self else { return }
             if sheetDestination != nil {
-                sheetDestination = nil
+                sheetDestination?.dismiss()
             } else if fullScreenDestination != nil {
-                fullScreenDestination = nil
+                fullScreenDestination?.dismiss()
             }
         }
     }
