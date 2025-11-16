@@ -6,10 +6,11 @@
 //
 
 import Foundation
+import SwiftUI
 
-public actor DeepLinkCenter<ViewDestination: ViewDestinationRepresentable> {
+public actor DeepLinkCenter: ObservableObject {
     // Keeps links that arrived while app was "locked"
-    private var pending: [ViewDestination] = []
+    private var pending: [any ViewDestinationRepresentable] = []
     let routerStack: RouterStack
     
     public init(routerStack: RouterStack) {
@@ -17,36 +18,40 @@ public actor DeepLinkCenter<ViewDestination: ViewDestinationRepresentable> {
     }
 
     /// Call from AppDelegate / notification delegate / openURL
-    public func enqueue(_ link: URL) async {
-        guard let destination = ViewDestination(from: link) else { return }
+    public func enqueue(_ destination: ViewDestinationRepresentable) async {
         pending.append(destination)
         await tryDeliver()
     }
 
     /// Call whenever login, onboarding, etc. finishes
+    @MainActor
     func tryDeliver() async {
         // get front-most router (you expose this via Environment)
         let router = await MainActor.run { routerStack.topMostRouter }
         if let router = router,
-           !pending.isEmpty
+           await !pending.isEmpty
         {
             // Remove first before async operation to avoid potential duplicates
-            let firstLink = pending.removeFirst()
+            let firstLink = await removeFirst()
             // Since ViewDestination now conforms to Sendable, it's safe to pass across actor boundaries
             await route(firstLink, on: router)
             
             // Continue processing pending links
-            if !pending.isEmpty {
+            if await !pending.isEmpty {
                 await tryDeliver()
             }
         }
     }
 
     @MainActor
-    private func route(_ destination: ViewDestination, on router: Router) async {
+    private func route(_ destination: any ViewDestinationRepresentable, on router: Router) async {
         let view = destination.view
         router.present {
             view
         }
+    }
+    
+    private func removeFirst() -> ViewDestinationRepresentable {
+        pending.removeFirst()
     }
 }

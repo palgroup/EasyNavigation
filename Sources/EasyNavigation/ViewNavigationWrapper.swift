@@ -23,37 +23,36 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     }
 }
 
+
+@MainActor
 public struct ViewNavigationWrapper: View {
-    @Environment(RouterStack.self) private var routerStack
-    
     @State var router: Router
     
-    public init<Content: View>(parent: Router? = nil, @ViewBuilder content: @escaping () -> Content) {
-        self.router = Router(parent: parent, root: content)
+    public init<Content: View>(routerStack: RouterStack, @ViewBuilder content: @escaping () -> Content) {
+        self._router = State(wrappedValue: Router(routerStack: routerStack, root: content))
     }
     
     public init(router: Router) {
-        self._router = State(initialValue: router)
+        self._router = State(wrappedValue: router)
     }
     
     public var body: some View {
         NavigationStack(path: $router.path) {
             router.root()
                 .id(router.rootViewID)
+                .environment(router)
                 .environment(createNavigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in
-                    wrapper
-                        .destination
+                    wrapper.destination
                         .id(wrapper.id)
                         .toolbar(.hidden, for: .navigationBar)
                         .environment(router)
                         .environment(
                             createNavigationInformation(
-                                isPushed: !wrapper.isTransitioningToRoot
+                                isPushed: true
                             )
                         )
                 }
-                .environment(router)
                 .toolbar(.hidden, for: .navigationBar)
         }
         .fullScreenCover(item: $router.fullScreenDestination, onDismiss: {
@@ -61,25 +60,23 @@ public struct ViewNavigationWrapper: View {
             router.onFullScreenDismiss = nil
         }) { wrapper in
             ViewNavigationWrapper(router: wrapper)
-                .environment(createNavigationInformation(isPushed: false))
-                .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(item: $router.sheetDestination, onDismiss: {
             router.onSheetDismiss?()
             router.onSheetDismiss = nil
         }) { wrapper in
             ViewNavigationWrapper(router: wrapper)
-                .environment(createNavigationInformation(isPushed: false))
-                .toolbar(.hidden, for: .navigationBar)
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
-            routerStack.push(router)
+            let routerId = ObjectIdentifier(router)
+            let hasParent = router.parent != nil
+            print("📱 [ViewNavigationWrapper] Router2(\(routerId)) appeared, hasParent=\(hasParent)")
         }
         .onDisappear {
-            router.fullScreenDestination = nil
-            router.sheetDestination = nil
-            routerStack.pop(router)
+            let routerId = ObjectIdentifier(router)
+            let hasParent = router.parent != nil
+            print("👋 [ViewNavigationWrapper] Router2(\(routerId)) disappeared, hasParent=\(hasParent)")
         }
         .id(router.id)
     }

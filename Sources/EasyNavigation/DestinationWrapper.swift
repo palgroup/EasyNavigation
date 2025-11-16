@@ -11,12 +11,10 @@ import SwiftUI
 public struct DestinationWrapper: Identifiable, Hashable, @unchecked Sendable {
     public let id = UUID()
     let destination: AnyView
-    let isTransitioningToRoot: Bool
     let allowsBackSwipe: Bool
 
-    init(destination: AnyView, isTransitioningToRoot: Bool = false, allowsBackSwipe: Bool = true) {
+    init(destination: AnyView, allowsBackSwipe: Bool = true) {
         self.destination = destination
-        self.isTransitioningToRoot = isTransitioningToRoot
         self.allowsBackSwipe = allowsBackSwipe
     }
 
@@ -27,4 +25,3 @@ public struct DestinationWrapper: Identifiable, Hashable, @unchecked Sendable {
         lhs.id == rhs.id
     }
 }
-
