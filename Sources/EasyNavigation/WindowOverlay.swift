@@ -74,26 +74,22 @@ public final class UniversalOverlayProperties {
     }
 }
 
+@MainActor
 public class PassThroughWindow: UIWindow {
+    public weak var overlayProperties: UniversalOverlayProperties?
+
     public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let hitView = super.hitTest(point, with: event),
-              let rootView = rootViewController?.view
-        else {
+        guard let hitView = super.hitTest(point, with: event) else {
             return nil
         }
 
-        if #available(iOS 18, *) {
-            for subView in rootView.subviews.reversed() {
-                let pointInSubView = subView.convert(point, from: rootView)
-
-                if subView.hitTest(pointInSubView, with: event) == subView {
-                    return hitView
-                }
-            }
-
-            return nil
-        } else {
-            return hitView == rootView ? nil : hitView
+        // Overlay içerik varsa, touch'ı yakala
+        // SwiftUI kendi içinde doğru elemente yönlendirecek
+        if let properties = overlayProperties, !properties.views.isEmpty {
+            return hitView
         }
+
+        // Overlay yoksa, pass through
+        return nil
     }
 }

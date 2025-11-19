@@ -11,7 +11,12 @@ import SwiftUI
 public actor DeepLinkCenter: ObservableObject {
     // Keeps links that arrived while app was "locked"
     private var pending: [any ViewDestinationRepresentable] = []
-    let routerStack: RouterStack
+    weak var routerStack: RouterStack?
+    
+    deinit {
+        pending.removeAll()
+        routerStack = nil
+    }
     
     public init(routerStack: RouterStack) {
         self.routerStack = routerStack
@@ -27,7 +32,7 @@ public actor DeepLinkCenter: ObservableObject {
     @MainActor
     func tryDeliver() async {
         // get front-most router (you expose this via Environment)
-        let router = await MainActor.run { routerStack.topMostRouter }
+        let router = await routerStack?.topMostRouter
         if let router = router,
            await !pending.isEmpty
         {

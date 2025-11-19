@@ -12,7 +12,7 @@ import Combine
 @Observable
 public class Router: Identifiable, Sendable {
     public let id = UUID().uuidString
-    var root: () -> AnyView
+    var root: AnyView
     var path: [DestinationWrapper] = []
     var fullScreenDestination: Router?
     @ObservationIgnored
@@ -25,17 +25,19 @@ public class Router: Identifiable, Sendable {
     
     @ObservationIgnored
     weak var parent: Router?
-    
-    // Task management
+
+    // Operation queue for sequential execution (FIFO guaranteed)
     @ObservationIgnored
-    private var isExecutingOperation = false
-    @ObservationIgnored
-    private var pendingOperations: [@MainActor () -> Void] = []
-    @ObservationIgnored
-    private let routerStack: RouterStack
+    private let operationQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1  // Serial execution
+        queue.qualityOfService = .userInteractive
+        return queue
+    }()
+
     // Navigation timing control
     @ObservationIgnored
-    public var operationDelay: Duration = .milliseconds(100)
+    public var operationDelay: TimeInterval = 0.01  // 10ms default
     @ObservationIgnored
     public var waitForUIUpdate: Bool = true
     
@@ -45,42 +47,67 @@ public class Router: Identifiable, Sendable {
 
     public init<Content: View>(
         parent: Router? = nil,
-        routerStack: RouterStack,
-        root: @escaping () -> Content
+        @ViewBuilder root: @escaping () -> Content
     ) {
         self.parent = parent
-        self.root = {
-            AnyView(root())
-        }
+        self.root = AnyView(root())
         self.rootViewID = UUID()
-        self.routerStack = routerStack
-        self.routerStack.push(self)
+    }
+    
+    /// Cleanup all router references and destinations
+    /// Call this before replacing root views to break retain cycles
+    public func cleanup() {
+        print("🧹 [CLEANUP] Router(\(ObjectIdentifier(self))) - Starting cleanup")
+
+        // Cancel all pending operations
+        operationQueue.cancelAllOperations()
+
+        // Recursively cleanup child routers first
+        if let child = fullScreenDestination {
+            child.cleanup()
+        }
+        if let child = sheetDestination {
+            child.cleanup()
+        }
+
+        // Clear all navigation state
+        path.removeAll()
+        fullScreenDestination = nil
+        sheetDestination = nil
+
+        // Clear all callbacks to break potential retain cycles
+        onFullScreenDismiss = nil
+        onSheetDismiss = nil
+
+        // CRITICAL: Clear root view to break environment capture
+        // The AnyView captures the entire environment including this router
+        // Replacing it with EmptyView breaks the retain cycle
+        self.root = AnyView(EmptyView())
+
+        // Don't nil the parent as it's weak and we don't own it
+
+        print("✅ [CLEANUP] Router(\(ObjectIdentifier(self))) - Cleanup complete")
+    }
+
+    deinit {
+        operationQueue.cancelAllOperations()
+        print("Router Deiniting \(ObjectIdentifier(self))")
     }
     
     private func executeOperation(_ operation: @escaping @MainActor () -> Void) {
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            
-            // Add operation to queue
-            pendingOperations.append(operation)
-            
-            // If already executing, just return - the operation will be picked up
-            if isExecutingOperation {
-                return
+        let delay = waitForUIUpdate ? operationDelay : 0
+
+        operationQueue.addOperation { [weak self] in
+            // Execute on main thread since Router is @MainActor
+            DispatchQueue.main.async {
+                guard self != nil else { return }
+                operation()
             }
-            
-            // Process all pending operations
-            isExecutingOperation = true
-            while !pendingOperations.isEmpty {
-                let nextOperation = pendingOperations.removeFirst()
-                nextOperation()
-                
-                if waitForUIUpdate {
-                    await Task.yield()
-                    try await Task.sleep(for: operationDelay)
-                }
+
+            // Wait for UI update if needed
+            if delay > 0 {
+                Thread.sleep(forTimeInterval: delay)
             }
-            isExecutingOperation = false
         }
     }
     
@@ -107,10 +134,8 @@ public class Router: Identifiable, Sendable {
     @MainActor
     private func replaceRootWithAnimation<Content: View>(_ newRootViewGenerator: @escaping () -> Content) {
         let newRootID = UUID()
-        let newGenerator = { AnyView(newRootViewGenerator()) }
-        
         withAnimation(.default) {
-            self.root = newGenerator
+            self.root = AnyView(newRootViewGenerator())
             self.rootViewID = newRootID
             self.path.removeAll()
         }
@@ -120,15 +145,15 @@ public class Router: Identifiable, Sendable {
     private func replacingPushAnimated<Content: View>(_ destination: @escaping () -> Content) async {
         // Path is not empty. Replace the top view on the stack with an animation.
         let newDestinationWrapper = DestinationWrapper(destination: AnyView(destination()))
-        
+
         // Operation 1: Append the new destination. This will be animated as a push.
         executeOperation { [weak self] in
             guard let self = self else { return }
             self.path.append(newDestinationWrapper)
         }
-        
+
         do {
-            try await Task.sleep(for: .milliseconds(400))
+            try await Task.sleep(nanoseconds: 400_000_000) // 400ms
         } catch {
             // Handle cancellation if necessary, e.g., by not proceeding.
             print("Task.sleep in replacingPushAnimated was cancelled: \(error)")
@@ -196,7 +221,10 @@ public class Router: Identifiable, Sendable {
     public func popToRoot() {
         executeOperation { [weak self] in
             guard let self = self else { return }
+            let routerId = ObjectIdentifier(self)
+            print("🏠 [POPTOROOT] Router(\(routerId)) - Clearing path of \(path.count) items")
             path.removeAll()
+            print("✅ [POPTOROOT] Router(\(routerId)) - Path cleared")
         }
     }
     
@@ -217,7 +245,7 @@ public class Router: Identifiable, Sendable {
             let hasParent = parent != nil
             print("🟣 [PRESENT] Router(\(routerId)) hasParent=\(hasParent) - Setting fullscreen")
             onFullScreenDismiss = onDismiss
-            let newRouter = Router(parent: self, routerStack: routerStack, root: destination)
+            let newRouter = Router(parent: self, root: destination)
             self.fullScreenDestination = newRouter
         }
     }
@@ -238,7 +266,7 @@ public class Router: Identifiable, Sendable {
             let hasParent = parent != nil
             print("🟡 [SHEET] Router(\(routerId)) hasParent=\(hasParent) - Setting sheet")
             onSheetDismiss = onDismiss
-            let newRouter = Router(parent: self, routerStack: routerStack, root: destination)
+            let newRouter = Router(parent: self, root: destination)
             sheetDestination = newRouter
         }
     }
@@ -256,8 +284,6 @@ public class Router: Identifiable, Sendable {
             }
             let routerId = ObjectIdentifier(self)
             let parentId = parent.map { ObjectIdentifier($0) }
-            
-            routerStack.pop(self)
             
             print("🔴 [DISMISS] Router(\(routerId)) - Dismissing from parent(\(String(describing: parentId)))")
             if parent?.sheetDestination != nil {

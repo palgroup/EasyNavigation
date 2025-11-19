@@ -12,68 +12,72 @@ import SwiftUI
 public final class RouterStack {
     public init() {}
 
-    /// Weak wrapper to avoid retain-cycles
     private struct WeakRouter {
-        weak var value: Router?
-        
-        init(value: Router?) {
-            self.value = value
-        }
-        
-        var isNil: Bool {
-            return value == nil
-        }
+        weak var router: Router?
     }
 
     @ObservationIgnored
     private var stack: [WeakRouter] = []
-    
-    @ObservationIgnored
-    private var cleanupTask: Task<Void, Never>?
-    
+
     deinit {
-        cleanupTask?.cancel()
-    }
-    
-    private func cleanupNilRouters() {
-        stack.removeAll { $0.isNil }
+        stack.removeAll()
     }
 
     /// Call in `ViewNavigationWrapper.onAppear`
     func push(_ router: Router) {
-        cleanupNilRouters()
-        
-        // Don't add duplicates
-        if !stack.contains(where: { $0.value === router }) {
-            stack.append(WeakRouter(value: router))
+        print("🔄 [RouterStack] PUSH - Router: \(router.id)")
+        print("🔄 [RouterStack] PUSH - Stack BEFORE: \(stack.count) items")
+
+        // Cleanup dead references first
+        stack.removeAll { $0.router == nil }
+
+        if !stack.contains(where: { $0.router?.id == router.id }) {
+            stack.append(WeakRouter(router: router))
+            print("✅ [RouterStack] PUSH - Added router")
+        } else {
+            print("⚠️ [RouterStack] PUSH - Router already in stack")
         }
-        
-        // Setup periodic cleanup if needed
-        if cleanupTask == nil {
-            // Capture self as unowned since cleanupTask will be cancelled in deinit
-            cleanupTask = Task { [unowned self] in
-                while !Task.isCancelled {
-                    do {
-                        try await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-                        await MainActor.run {
-                            self.cleanupNilRouters()
-                        }
-                    } catch {
-                        break // Exit on cancellation
-                    }
-                }
-            }
-        }
+
+        print("🔄 [RouterStack] PUSH - Stack AFTER: \(stack.count) items")
     }
 
     /// Call in `ViewNavigationWrapper.onDisappear`
     func pop(_ router: Router) {
-        stack.removeAll { $0.value === router || $0.isNil }
+        print("🔄 [RouterStack] POP - Router: \(router.id)")
+        print("🔄 [RouterStack] POP - Stack BEFORE: \(stack.count) items")
+
+        let countBefore = stack.count
+        stack.removeAll { $0.router?.id == router.id || $0.router == nil }
+
+        print("🔄 [RouterStack] POP - Removed \(countBefore - stack.count) items")
+        print("🔄 [RouterStack] POP - Stack AFTER: \(stack.count) items")
     }
 
     /// Router currently on screen (sheet / fullscreen içinde dâhil)
     var topMostRouter: Router? {
-        cleanupNilRouters()
-        return stack.last?.value
+        // Clean up nil references and return last valid router
+        stack.removeAll { $0.router == nil }
+        return stack.last?.router
+    }
+
+    /// Cleanup all routers in stack before removing them
+    /// This breaks retain cycles and ensures proper deallocation
+    func cleanupAllRouters() {
+        print("🧹 [RouterStack] CLEANUP ALL - Stack BEFORE: \(stack.count) items")
+
+        // Cleanup each router to break retain cycles
+        for weakRouter in stack {
+            if let router = weakRouter.router {
+                router.cleanup()
+            }
+        }
+
+        print("✅ [RouterStack] CLEANUP ALL - All routers cleaned up")
+    }
+
+    func removeAllPendings() {
+        print("🗑️ [RouterStack] REMOVE ALL - Stack BEFORE: \(stack.count) items")
+        stack.removeAll()
+        print("🗑️ [RouterStack] REMOVE ALL - Stack AFTER: \(stack.count) items")
     }
 }

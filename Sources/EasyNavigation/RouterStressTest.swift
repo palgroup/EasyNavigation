@@ -1,26 +1,12 @@
 import SwiftUI
 
-/// A stress test view for testing Router performance and memory management
-/// Use this view to test navigation handling under heavy load
-public struct RouterStressTest: View {
-    /// Initialize a new router stress test view
-    @State var stack = RouterStack()
-    public init() {}
+public struct StressTestTabView: View {
+    @State private var selectedTab = 0
+    public init() { }
 
     public var body: some View {
-        StressTestTabView(routerStack: stack)
-            .environment(stack)
-            .background(Color(.systemBackground)) // Prevent transparency issues
-    }
-}
-
-private struct StressTestTabView: View {
-    @State private var selectedTab = 0
-    let routerStack: RouterStack
-
-    var body: some View {
         TabView(selection: $selectedTab) {
-            ViewNavigationWrapper(routerStack: routerStack) {
+            ViewNavigationWrapper {
                 NavigationStressTest()
                     .background(Color(.systemBackground))
             }
@@ -29,7 +15,7 @@ private struct StressTestTabView: View {
             }
             .tag(0)
 
-            ViewNavigationWrapper(routerStack: routerStack) {
+            ViewNavigationWrapper {
                 SheetStressTest()
                     .background(Color(.systemBackground))
             }
@@ -38,7 +24,7 @@ private struct StressTestTabView: View {
             }
             .tag(1)
 
-            ViewNavigationWrapper(routerStack: routerStack) {
+            ViewNavigationWrapper {
                 FullscreenStressTest()
                     .background(Color(.systemBackground))
             }
@@ -47,7 +33,7 @@ private struct StressTestTabView: View {
             }
             .tag(2)
 
-            ViewNavigationWrapper(routerStack: routerStack) {
+            ViewNavigationWrapper {
                 MixedStressTest()
                     .background(Color(.systemBackground))
             }
@@ -56,7 +42,7 @@ private struct StressTestTabView: View {
             }
             .tag(3)
 
-            ViewNavigationWrapper(routerStack: routerStack) {
+            ViewNavigationWrapper {
                 AdvancedNavigationDemo()
                     .background(Color(.systemBackground))
             }
@@ -64,6 +50,15 @@ private struct StressTestTabView: View {
                 Label("Advanced", systemImage: "wand.and.stars")
             }
             .tag(4)
+
+            ViewNavigationWrapper {
+                WindowStressTest()
+                    .background(Color(.systemBackground))
+            }
+            .tabItem {
+                Label("Window", systemImage: "macwindow")
+            }
+            .tag(5)
         }
         .background(Color(.systemBackground))
     }
@@ -125,8 +120,11 @@ private struct NavigationStressTest: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .onDisappear {
+            stopTest()
+        }
     }
-    
+
     private func startNavigationTest() {
         isRunning = true
         depth = 0 // Reset when starting
@@ -192,6 +190,7 @@ private struct NestedView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(hue: Double(depth) / Double(maxDepth), saturation: 0.8, brightness: 0.9))
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 
@@ -248,8 +247,11 @@ private struct SheetStressTest: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .onDisappear {
+            stopTest()
+        }
     }
-    
+
     private func startSheetTest() {
         isRunning = true
         sheetCount = 0 // Reset on start
@@ -382,8 +384,11 @@ private struct FullscreenStressTest: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .onDisappear {
+            stopTest()
+        }
     }
-    
+
     private func startFullscreenTest() {
         isRunning = true
         presentationCount = 0 // Reset on start
@@ -527,6 +532,9 @@ private struct MixedStressTest: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .onDisappear {
+            stopTest()
+        }
     }
 
     private func startMixedTest() {
@@ -537,9 +545,6 @@ private struct MixedStressTest: View {
                 if operationCount < maxOperations {
                     performRandomOperation()
                 } else {
-                    // When we reach max operations, reset and stop the test
-                    router.popToRoot()
-                    operationCount = 0
                     stopTest()
                     break
                 }
@@ -560,13 +565,14 @@ private struct MixedStressTest: View {
         case 0:
             router.push {
                 MixedNestedView(count: operationCount, maxCount: maxOperations)
+                    .toolbar(.hidden, for: .tabBar)
             }
         case 1:
             router.sheet {
                 MixedNestedView(count: operationCount, maxCount: maxOperations)
             }
         case 2:
-            router.present {
+            router.sheet {
                 MixedNestedView(count: operationCount, maxCount: maxOperations)
             }
         case 3:
@@ -634,6 +640,7 @@ private struct MixedNestedView: View {
         .onAppear {
             print("MixedNestedView appeared: count=\(count), type=\(navInfo.navigationType)")
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private func performRandomOperation() {
@@ -966,5 +973,219 @@ private struct PresentationDemoView: View {
             ? Color.blue.opacity(0.1)
             : Color.green.opacity(0.1)
         )
+    }
+}
+
+// Window stress test for GlobalRouter functionality
+private struct WindowStressTest: View {
+    @Environment(GlobalRouter.self) private var globalRouter
+    @State private var overlayCount = 0
+    @State private var overlayIds: [String] = []
+    @State private var rootChangeCount = 0
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                Text("Window Stress Test")
+                    .font(.title)
+                    .padding(.top)
+
+                // Overlay section
+                GroupBox(label: Label("Overlay Management", systemImage: "square.stack.3d.up")) {
+                    VStack(spacing: 16) {
+                        Text("Active Overlays: \(overlayCount)")
+                            .font(.headline)
+
+                        Button("Show Overlay") {
+                            showOverlay()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity)
+
+                        Button("Dismiss Last Overlay") {
+                            dismissLastOverlay()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(overlayIds.isEmpty)
+                        .frame(maxWidth: .infinity)
+
+                        Button("Dismiss All Overlays") {
+                            dismissAllOverlays()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(overlayIds.isEmpty)
+                        .frame(maxWidth: .infinity)
+
+                        Button("Show Multiple Overlays (5)") {
+                            showMultipleOverlays()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding()
+                }
+                .padding(.horizontal)
+
+                // Set Root section
+                GroupBox(label: Label("Key Window Root", systemImage: "window.shade.open")) {
+                    VStack(spacing: 16) {
+                        Text("Root Changes: \(rootChangeCount)")
+                            .font(.headline)
+
+                        Button("Change Root to New View") {
+                            changeRoot()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding()
+                }
+                .padding(.horizontal)
+
+                // Info section
+                GroupBox(label: Label("Window Info", systemImage: "info.circle")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Key Window: \(globalRouter.keyWindow != nil ? "Available" : "Not Set")")
+                        Text("Overlay Properties Views: \(globalRouter.overlayProperties.views.count)")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                }
+                .padding(.horizontal)
+            }
+            .padding(.bottom, 30)
+        }
+    }
+
+    private func showOverlay() {
+        let id = UUID().uuidString
+        overlayIds.append(id)
+        overlayCount += 1
+
+        globalRouter.show(id: id) {
+            OverlayContentView(
+                overlayNumber: overlayCount,
+                onDismiss: {
+                    globalRouter.dismiss(id)
+                    overlayIds.removeAll { $0 == id }
+                    overlayCount = overlayIds.count
+                }
+            )
+        }
+    }
+
+    private func dismissLastOverlay() {
+        guard let lastId = overlayIds.last else { return }
+        globalRouter.dismiss(lastId)
+        overlayIds.removeLast()
+        overlayCount = overlayIds.count
+    }
+
+    private func dismissAllOverlays() {
+        for id in overlayIds {
+            globalRouter.dismiss(id)
+        }
+        overlayIds.removeAll()
+        overlayCount = 0
+    }
+
+    private func showMultipleOverlays() {
+        for i in 1...5 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.2) {
+                showOverlay()
+            }
+        }
+    }
+
+    private func changeRoot() {
+        rootChangeCount += 1
+        let currentCount = rootChangeCount
+
+        globalRouter.setRoot {
+            NewRootView(changeNumber: currentCount) {
+                // Reset back - TabView'a dön
+                globalRouter.setRoot {
+                    StressTestTabView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+private struct WindowStressTestRoot: View {
+    var body: some View {
+        WindowStressTest()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground))
+    }
+}
+
+private struct OverlayContentView: View {
+    let overlayNumber: Int
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            // Arka plan - tıklanabilir, tüm alanı kaplar
+            Color.black.opacity(0.3)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Arka plana tıklayınca dismiss (isteğe bağlı)
+                }
+
+            // İçerik kartı
+            VStack(spacing: 20) {
+                Text("Overlay #\(overlayNumber)")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("This is an overlay view displayed on top of the key window")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+
+                Button("Dismiss") {
+                    onDismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(30)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(.systemBackground))
+                    .shadow(radius: 10)
+            )
+            .offset(y: CGFloat(overlayNumber * 20))
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct NewRootView: View {
+    let changeNumber: Int
+    let onReset: () -> Void
+
+    var body: some View {
+        VStack(spacing: 30) {
+            Text("New Root View")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Text("Root Change #\(changeNumber)")
+                .font(.title2)
+
+            Text("The key window's root view controller has been replaced with this view wrapped in WindowRoot")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+
+            Button("Reset to Stress Test") {
+                onReset()
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(hue: Double(changeNumber) * 0.15, saturation: 0.3, brightness: 0.95))
     }
 }

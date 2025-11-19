@@ -9,6 +9,5 @@ import Foundation
 import SwiftUI
 
 public protocol ViewDestinationRepresentable: Sendable {
-    init?(from url: URL)
     var view: AnyView { get }
 }

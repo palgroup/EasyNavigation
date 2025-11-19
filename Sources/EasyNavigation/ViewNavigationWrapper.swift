@@ -23,13 +23,13 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     }
 }
 
-
 @MainActor
 public struct ViewNavigationWrapper: View {
     @State var router: Router
+//    @Environment(RouterStack.self) var stack
     
-    public init<Content: View>(routerStack: RouterStack, @ViewBuilder content: @escaping () -> Content) {
-        self._router = State(wrappedValue: Router(routerStack: routerStack, root: content))
+    public init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
+        self._router = State(wrappedValue: Router(root: content))
     }
     
     public init(router: Router) {
@@ -38,7 +38,7 @@ public struct ViewNavigationWrapper: View {
     
     public var body: some View {
         NavigationStack(path: $router.path) {
-            router.root()
+            router.root
                 .id(router.rootViewID)
                 .environment(router)
                 .environment(createNavigationInformation(isPushed: false))
@@ -55,15 +55,15 @@ public struct ViewNavigationWrapper: View {
                 }
                 .toolbar(.hidden, for: .navigationBar)
         }
-        .fullScreenCover(item: $router.fullScreenDestination, onDismiss: {
-            router.onFullScreenDismiss?()
-            router.onFullScreenDismiss = nil
+        .fullScreenCover(item: $router.fullScreenDestination, onDismiss: { [weak router] in
+            router?.onFullScreenDismiss?()
+            router?.onFullScreenDismiss = nil
         }) { wrapper in
             ViewNavigationWrapper(router: wrapper)
         }
-        .sheet(item: $router.sheetDestination, onDismiss: {
-            router.onSheetDismiss?()
-            router.onSheetDismiss = nil
+        .sheet(item: $router.sheetDestination, onDismiss: { [weak router] in
+            router?.onSheetDismiss?()
+            router?.onSheetDismiss = nil
         }) { wrapper in
             ViewNavigationWrapper(router: wrapper)
         }
@@ -72,11 +72,13 @@ public struct ViewNavigationWrapper: View {
             let routerId = ObjectIdentifier(router)
             let hasParent = router.parent != nil
             print("📱 [ViewNavigationWrapper] Router2(\(routerId)) appeared, hasParent=\(hasParent)")
+//            stack.push(router)
         }
         .onDisappear {
             let routerId = ObjectIdentifier(router)
             let hasParent = router.parent != nil
             print("👋 [ViewNavigationWrapper] Router2(\(routerId)) disappeared, hasParent=\(hasParent)")
+//            stack.pop(router)
         }
         .id(router.id)
     }
