@@ -29,17 +29,16 @@ public struct ViewNavigationWrapper: View {
 //    @Environment(RouterStack.self) var stack
     
     public init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
-        self._router = State(wrappedValue: Router(root: content))
+        self._router = State(initialValue: Router(root: content))
     }
     
     public init(router: Router) {
-        self._router = State(wrappedValue: router)
+        self._router = State(initialValue: router)
     }
     
     public var body: some View {
         NavigationStack(path: $router.path) {
             router.root
-                .id(router.rootViewID)
                 .environment(router)
                 .environment(createNavigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in

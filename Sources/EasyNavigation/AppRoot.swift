@@ -8,19 +8,19 @@
 import SwiftUI
 
 public struct AppRoot<C: View>: View {
-    @State private var globalRouter: GlobalRouter
-    
+    @State private var globalRouter = GlobalRouter()
+    private var content: C
+
     public init(@ViewBuilder content: @escaping () -> C) {
-        self._globalRouter = State(initialValue: GlobalRouter(content: content))
+        self.content = content()
     }
     
     public var body: some View {
-        globalRouter.rootView
+        content
 //            .environment(globalRouter.routerStack)
 //            .environmentObject(globalRouter.deeplinkCenter)
             .environment(globalRouter)
             .environment(globalRouter.overlayProperties)
-            .id(globalRouter.rootViewID)
             .task {
                 guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
                     return
@@ -28,4 +28,6 @@ public struct AppRoot<C: View>: View {
                 globalRouter.setup(scene: scene)
             }
     }
+
 }
+

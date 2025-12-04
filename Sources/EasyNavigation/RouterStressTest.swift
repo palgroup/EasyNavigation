@@ -1026,22 +1026,6 @@ private struct WindowStressTest: View {
                 }
                 .padding(.horizontal)
 
-                // Set Root section
-                GroupBox(label: Label("Key Window Root", systemImage: "window.shade.open")) {
-                    VStack(spacing: 16) {
-                        Text("Root Changes: \(rootChangeCount)")
-                            .font(.headline)
-
-                        Button("Change Root to New View") {
-                            changeRoot()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .frame(maxWidth: .infinity)
-                    }
-                    .padding()
-                }
-                .padding(.horizontal)
-
                 // Info section
                 GroupBox(label: Label("Window Info", systemImage: "info.circle")) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -1094,21 +1078,6 @@ private struct WindowStressTest: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.2) {
                 showOverlay()
             }
-        }
-    }
-
-    private func changeRoot() {
-        rootChangeCount += 1
-        let currentCount = rootChangeCount
-
-        globalRouter.setRoot {
-            NewRootView(changeNumber: currentCount) {
-                // Reset back - TabView'a dön
-                globalRouter.setRoot {
-                    StressTestTabView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
