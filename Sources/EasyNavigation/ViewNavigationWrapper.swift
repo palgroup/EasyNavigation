@@ -26,6 +26,7 @@ public struct ViewNavigationWrapper: View {
                 .environment(createNavigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in
                     wrapper.destination
+                        .background(BackSwipeConfigurator(isEnabled: wrapper.allowsBackSwipe))
                         .toolbar(.hidden, for: .navigationBar)
                         .environment(router)
                         .environment(
