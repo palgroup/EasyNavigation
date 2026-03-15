@@ -301,6 +301,24 @@ public class Router: Identifiable, Sendable {
 }
 
 
+// MARK: - ViewDestination Support
+extension Router {
+    /// Push a ViewDestination-conforming route (enum routing)
+    public func push<D: ViewDestination>(_ destination: D, allowBackSwipe: Bool = true) {
+        push(allowBackSwipe: allowBackSwipe) { destination.body }
+    }
+
+    /// Present a ViewDestination-conforming route as fullscreen
+    public func present<D: ViewDestination>(_ destination: D, onDismiss: (() -> Void)? = nil) {
+        present({ destination.body }, onDismiss: onDismiss)
+    }
+
+    /// Present a ViewDestination-conforming route as sheet
+    public func sheet<D: ViewDestination>(_ destination: D, onDismiss: (() -> Void)? = nil) {
+        sheet({ destination.body }, onDismiss: onDismiss)
+    }
+}
+
 extension Router {
     fileprivate func logAlreadyPresenting() {
         if sheetDestination != nil {

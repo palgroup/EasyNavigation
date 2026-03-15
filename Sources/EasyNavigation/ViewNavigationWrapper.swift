@@ -26,7 +26,6 @@ public struct ViewNavigationWrapper: View {
                 .environment(createNavigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in
                     wrapper.destination
-                        .id(wrapper.id)
                         .toolbar(.hidden, for: .navigationBar)
                         .environment(router)
                         .environment(
