@@ -55,7 +55,6 @@ public struct ViewNavigationWrapper: View {
         .onDisappear {
             NavigationLogger.debug("ViewNavigationWrapper disappeared - hasParent=\(router.parent != nil)")
         }
-        .id(router.id)
     }
 
     private func createNavigationInformation(isPushed: Bool) -> NavigationInformations {

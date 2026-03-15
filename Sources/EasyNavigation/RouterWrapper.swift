@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 @propertyWrapper
 public struct RouterWrapper: DynamicProperty {

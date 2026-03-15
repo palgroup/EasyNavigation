@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 public struct Navigation {
     public let router: Router
