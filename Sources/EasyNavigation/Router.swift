@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 @MainActor
 @Observable
@@ -26,20 +25,12 @@ public class Router: Identifiable, Sendable {
     @ObservationIgnored
     weak var parent: Router?
 
-    // Operation queue for sequential execution (FIFO guaranteed)
+    // AsyncStream-based serial operation processor
     @ObservationIgnored
-    private let operationQueue: OperationQueue = {
-        let queue = OperationQueue()
-        queue.maxConcurrentOperationCount = 1  // Serial execution
-        queue.qualityOfService = .userInteractive
-        return queue
-    }()
+    private var navigationContinuation: AsyncStream<@MainActor @Sendable () -> Void>.Continuation?
 
-    // Navigation timing control
     @ObservationIgnored
-    public var operationDelay: TimeInterval = 0.01  // 10ms default
-    @ObservationIgnored
-    public var waitForUIUpdate: Bool = true
+    private var processingTask: Task<Void, Never>?
 
     public var isPresenting: Bool {
         fullScreenDestination != nil || sheetDestination != nil
@@ -58,6 +49,31 @@ public class Router: Identifiable, Sendable {
         self.parent = parent
         self.root = AnyView(root())
         self.rootViewID = UUID()
+        startOperationProcessor()
+    }
+
+    /// Starts the serial navigation operation processor.
+    /// All navigation ops are queued and executed one at a time on @MainActor
+    /// with a yield between each to let SwiftUI commit state changes.
+    private func startOperationProcessor() {
+        let (stream, continuation) = AsyncStream<@MainActor @Sendable () -> Void>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        self.navigationContinuation = continuation
+
+        processingTask = Task { [weak self] in
+            for await operation in stream {
+                guard self != nil else { break }
+                operation()
+                await Task.yield()
+            }
+        }
+    }
+
+    /// Queues a navigation operation for serial execution.
+    /// Operations execute in FIFO order on @MainActor.
+    private func executeOperation(_ operation: @escaping @MainActor @Sendable () -> Void) {
+        navigationContinuation?.yield(operation)
     }
 
     /// Cleanup all router references and destinations
@@ -65,8 +81,9 @@ public class Router: Identifiable, Sendable {
     public func cleanup() {
         NavigationLogger.debug("CLEANUP - Starting cleanup")
 
-        // Cancel all pending operations
-        operationQueue.cancelAllOperations()
+        // Terminate the operation stream
+        navigationContinuation?.finish()
+        processingTask?.cancel()
 
         // Recursively cleanup child routers first
         if let child = fullScreenDestination {
@@ -94,25 +111,9 @@ public class Router: Identifiable, Sendable {
     }
 
     deinit {
-        operationQueue.cancelAllOperations()
+        navigationContinuation?.finish()
+        processingTask?.cancel()
         NavigationLogger.debug("Router deiniting")
-    }
-
-    private func executeOperation(_ operation: @escaping @MainActor () -> Void) {
-        let delay = waitForUIUpdate ? operationDelay : 0
-
-        operationQueue.addOperation { [weak self] in
-            // Execute on main thread since Router is @MainActor
-            DispatchQueue.main.async {
-                guard self != nil else { return }
-                operation()
-            }
-
-            // Wait for UI update if needed
-            if delay > 0 {
-                Thread.sleep(forTimeInterval: delay)
-            }
-        }
     }
 
     // MARK: - Navigation API
@@ -122,14 +123,14 @@ public class Router: Identifiable, Sendable {
                 NavigationLogger.error("PUSH - Router is nil, operation cancelled")
                 return
             }
-            NavigationLogger.debug("PUSH - Current path count: \(path.count)")
+            NavigationLogger.debug("PUSH - Current path count: \(self.path.count)")
 
             let wrapper = DestinationWrapper(
                 destination: AnyView(destination()),
                 allowsBackSwipe: allowBackSwipe
             )
-            path.append(wrapper)
-            NavigationLogger.debug("PUSH - Pushed. New path count: \(path.count)")
+            self.path.append(wrapper)
+            NavigationLogger.debug("PUSH - Pushed. New path count: \(self.path.count)")
         }
     }
 
@@ -140,37 +141,6 @@ public class Router: Identifiable, Sendable {
             self.root = AnyView(newRootViewGenerator())
             self.rootViewID = newRootID
             self.path.removeAll()
-        }
-    }
-
-    @MainActor
-    private func replacingPushAnimated<Content: View>(_ destination: @escaping () -> Content) async {
-        // Path is not empty. Replace the top view on the stack with an animation.
-        let newDestinationWrapper = DestinationWrapper(destination: AnyView(destination()))
-
-        // Operation 1: Append the new destination. This will be animated as a push.
-        executeOperation { [weak self] in
-            guard let self = self else { return }
-            self.path.append(newDestinationWrapper)
-        }
-
-        do {
-            try await Task.sleep(nanoseconds: 400_000_000) // 400ms
-        } catch {
-            NavigationLogger.warning("replacingPushAnimated - Task.sleep cancelled: \(error)")
-            return
-        }
-        // Operation 2: Remove the item that was previously at the top (now second to last).
-        // Do this without animation.
-        executeOperation { [weak self] in
-            guard let self = self else { return }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                if self.path.count >= 2 {
-                    self.path.remove(at: self.path.count - 2)
-                }
-            }
         }
     }
 
@@ -210,15 +180,15 @@ public class Router: Identifiable, Sendable {
 
     public func pop() {
         executeOperation { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 NavigationLogger.error("POP - Router is nil, operation cancelled")
                 return
             }
-            NavigationLogger.debug("POP - Current path: \(path.count)")
+            NavigationLogger.debug("POP - Current path: \(self.path.count)")
 
-            if !path.isEmpty {
-                path.removeLast()
-                NavigationLogger.debug("POP - Popped. New path: \(path.count)")
+            if !self.path.isEmpty {
+                self.path.removeLast()
+                NavigationLogger.debug("POP - Popped. New path: \(self.path.count)")
             } else {
                 NavigationLogger.warning("POP - Path empty, nothing to pop")
             }
@@ -227,9 +197,9 @@ public class Router: Identifiable, Sendable {
 
     public func popToRoot() {
         executeOperation { [weak self] in
-            guard let self = self else { return }
-            NavigationLogger.debug("POPTOROOT - Clearing path of \(path.count) items")
-            path.removeAll()
+            guard let self else { return }
+            NavigationLogger.debug("POPTOROOT - Clearing path of \(self.path.count) items")
+            self.path.removeAll()
             NavigationLogger.debug("POPTOROOT - Path cleared")
         }
     }
@@ -237,18 +207,18 @@ public class Router: Identifiable, Sendable {
     // MARK: - Sheets & Covers
     public func present<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
         executeOperation { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 NavigationLogger.error("PRESENT - Router is nil, operation cancelled")
                 return
             }
 
-            guard !isPresenting else {
-                printAlreadyPresenting()
+            guard !self.isPresenting else {
+                self.logAlreadyPresenting()
                 return
             }
 
-            NavigationLogger.debug("PRESENT - hasParent=\(parent != nil) - Setting fullscreen")
-            onFullScreenDismiss = onDismiss
+            NavigationLogger.debug("PRESENT - hasParent=\(self.parent != nil) - Setting fullscreen")
+            self.onFullScreenDismiss = onDismiss
             let newRouter = Router(parent: self, root: destination)
             self.fullScreenDestination = newRouter
         }
@@ -256,43 +226,43 @@ public class Router: Identifiable, Sendable {
 
     public func sheet<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
         executeOperation { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 NavigationLogger.error("SHEET - Router is nil, operation cancelled")
                 return
             }
 
-            guard !isPresenting else {
-                printAlreadyPresenting()
+            guard !self.isPresenting else {
+                self.logAlreadyPresenting()
                 return
             }
 
-            NavigationLogger.debug("SHEET - hasParent=\(parent != nil) - Setting sheet")
-            onSheetDismiss = onDismiss
+            NavigationLogger.debug("SHEET - hasParent=\(self.parent != nil) - Setting sheet")
+            self.onSheetDismiss = onDismiss
             let newRouter = Router(parent: self, root: destination)
-            sheetDestination = newRouter
+            self.sheetDestination = newRouter
         }
     }
 
     public func dismiss() {
         executeOperation { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 NavigationLogger.error("DISMISS - Router is nil, operation cancelled")
                 return
             }
 
             // Silently ignore dismiss if no parent (root view)
-            guard parent != nil else {
+            guard self.parent != nil else {
                 return
             }
 
             NavigationLogger.debug("DISMISS - Dismissing from parent")
-            if parent?.sheetDestination != nil {
-                parent?.sheetDestination = nil
+            if self.parent?.sheetDestination != nil {
+                self.parent?.sheetDestination = nil
                 NavigationLogger.debug("DISMISS - Cleared parent's sheet")
                 return
             }
-            if parent?.fullScreenDestination != nil {
-                parent?.fullScreenDestination = nil
+            if self.parent?.fullScreenDestination != nil {
+                self.parent?.fullScreenDestination = nil
                 NavigationLogger.debug("DISMISS - Cleared parent's fullscreen")
                 return
             }
@@ -302,15 +272,15 @@ public class Router: Identifiable, Sendable {
 
     public func dismissPresented() {
         executeOperation { [weak self] in
-            guard let self = self else {
+            guard let self else {
                 NavigationLogger.error("DISMISS_PRESENTED - Router is nil, operation cancelled")
                 return
             }
 
-            if sheetDestination != nil {
-                sheetDestination?.dismiss()
-            } else if fullScreenDestination != nil {
-                fullScreenDestination?.dismiss()
+            if self.sheetDestination != nil {
+                self.sheetDestination?.dismiss()
+            } else if self.fullScreenDestination != nil {
+                self.fullScreenDestination?.dismiss()
             } else {
                 NavigationLogger.warning("DISMISS_PRESENTED - No presented view to dismiss")
             }
@@ -319,11 +289,11 @@ public class Router: Identifiable, Sendable {
 
     public func dismissToRoot() {
         executeOperation { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
-            sheetDestination = nil
-            fullScreenDestination = nil
-            if let parent = parent {
+            self.sheetDestination = nil
+            self.fullScreenDestination = nil
+            if let parent = self.parent {
                 parent.dismissToRoot()
             }
         }
@@ -332,7 +302,7 @@ public class Router: Identifiable, Sendable {
 
 
 extension Router {
-    func printAlreadyPresenting() {
+    fileprivate func logAlreadyPresenting() {
         if sheetDestination != nil {
             NavigationLogger.error("PRESENT - Router already presenting a sheet, cannot present another view")
             return
