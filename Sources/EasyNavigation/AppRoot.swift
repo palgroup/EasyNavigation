@@ -9,9 +9,16 @@ import SwiftUI
 
 public struct AppRoot<C: View>: View {
     @State private var globalRouter = GlobalRouter()
+    private var deepLinkCenter: DeepLinkCenter?
     private var content: C
 
     public init(@ViewBuilder content: @escaping () -> C) {
+        self.deepLinkCenter = nil
+        self.content = content()
+    }
+
+    public init(deepLinkCenter: DeepLinkCenter, @ViewBuilder content: @escaping () -> C) {
+        self.deepLinkCenter = deepLinkCenter
         self.content = content()
     }
 
