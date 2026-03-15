@@ -12,16 +12,10 @@ import SwiftUI
 public final class GlobalRouter {
     private(set) public var keyWindow: UIWindow?
     public var overlayProperties = UniversalOverlayProperties()
-//    private(set) public var routerStack: RouterStack
-//    private(set) public var deeplinkCenter: DeepLinkCenter
 
     private weak var windowScene: UIWindowScene?
 
-    init() {
-//        let routerStack = RouterStack()
-//        deeplinkCenter = DeepLinkCenter(routerStack: routerStack)
-//        self.routerStack = routerStack
-    }
+    init() {}
 
     func setup(scene: UIWindowScene) {
         self.windowScene = scene

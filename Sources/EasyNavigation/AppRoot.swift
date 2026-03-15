@@ -14,11 +14,9 @@ public struct AppRoot<C: View>: View {
     public init(@ViewBuilder content: @escaping () -> C) {
         self.content = content()
     }
-    
+
     public var body: some View {
         content
-//            .environment(globalRouter.routerStack)
-//            .environmentObject(globalRouter.deeplinkCenter)
             .environment(globalRouter)
             .environment(globalRouter.overlayProperties)
             .task {
@@ -28,6 +26,4 @@ public struct AppRoot<C: View>: View {
                 globalRouter.setup(scene: scene)
             }
     }
-
 }
-

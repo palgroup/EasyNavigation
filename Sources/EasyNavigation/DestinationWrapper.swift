@@ -8,7 +8,7 @@
 import Foundation
 import SwiftUI
 
-public struct DestinationWrapper: Identifiable, Hashable, @unchecked Sendable {
+public struct DestinationWrapper: Identifiable, Hashable {
     public let id = UUID()
     let destination: AnyView
     let allowsBackSwipe: Bool

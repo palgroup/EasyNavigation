@@ -7,35 +7,18 @@
 
 import SwiftUI
 
-struct SwipeConfiguration {
-    @MainActor static var backSwipeAvailable: Bool = false
-    
-}
-// MARK: - UINavigationController Extension for Back Swipe Gesture
-extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
-    override open func viewDidLoad() {
-        super.viewDidLoad()
-        interactivePopGestureRecognizer?.delegate = self
-    }
-    
-    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        return viewControllers.count > 1 && SwipeConfiguration.backSwipeAvailable
-    }
-}
-
 @MainActor
 public struct ViewNavigationWrapper: View {
     @State var router: Router
-//    @Environment(RouterStack.self) var stack
-    
+
     public init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
         self._router = State(initialValue: Router(root: content))
     }
-    
+
     public init(router: Router) {
         self._router = State(initialValue: router)
     }
-    
+
     public var body: some View {
         NavigationStack(path: $router.path) {
             router.root
@@ -68,20 +51,14 @@ public struct ViewNavigationWrapper: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
-            let routerId = ObjectIdentifier(router)
-            let hasParent = router.parent != nil
-            print("📱 [ViewNavigationWrapper] Router2(\(routerId)) appeared, hasParent=\(hasParent)")
-//            stack.push(router)
+            NavigationLogger.debug("ViewNavigationWrapper appeared - hasParent=\(router.parent != nil)")
         }
         .onDisappear {
-            let routerId = ObjectIdentifier(router)
-            let hasParent = router.parent != nil
-            print("👋 [ViewNavigationWrapper] Router2(\(routerId)) disappeared, hasParent=\(hasParent)")
-//            stack.pop(router)
+            NavigationLogger.debug("ViewNavigationWrapper disappeared - hasParent=\(router.parent != nil)")
         }
         .id(router.id)
     }
-    
+
     private func createNavigationInformation(isPushed: Bool) -> NavigationInformations {
         return NavigationInformations(
             isPushed: isPushed,

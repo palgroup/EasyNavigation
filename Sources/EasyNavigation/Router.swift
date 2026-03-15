@@ -22,7 +22,7 @@ public class Router: Identifiable, Sendable {
     var onSheetDismiss: (() -> Void)?
 
     var rootViewID: UUID = UUID()
-    
+
     @ObservationIgnored
     weak var parent: Router?
 
@@ -40,9 +40,15 @@ public class Router: Identifiable, Sendable {
     public var operationDelay: TimeInterval = 0.01  // 10ms default
     @ObservationIgnored
     public var waitForUIUpdate: Bool = true
-    
+
     public var isPresenting: Bool {
         fullScreenDestination != nil || sheetDestination != nil
+    }
+
+    /// Whether the current top-of-stack view allows back swipe.
+    /// Returns true when path is empty (root views always allow).
+    public var isBackSwipeAllowed: Bool {
+        path.last?.allowsBackSwipe ?? true
     }
 
     public init<Content: View>(
@@ -53,11 +59,11 @@ public class Router: Identifiable, Sendable {
         self.root = AnyView(root())
         self.rootViewID = UUID()
     }
-    
+
     /// Cleanup all router references and destinations
     /// Call this before replacing root views to break retain cycles
     public func cleanup() {
-        print("🧹 [CLEANUP] Router(\(ObjectIdentifier(self))) - Starting cleanup")
+        NavigationLogger.debug("CLEANUP - Starting cleanup")
 
         // Cancel all pending operations
         operationQueue.cancelAllOperations()
@@ -84,16 +90,14 @@ public class Router: Identifiable, Sendable {
         // Replacing it with EmptyView breaks the retain cycle
         self.root = AnyView(EmptyView())
 
-        // Don't nil the parent as it's weak and we don't own it
-
-        print("✅ [CLEANUP] Router(\(ObjectIdentifier(self))) - Cleanup complete")
+        NavigationLogger.debug("CLEANUP - Complete")
     }
 
     deinit {
         operationQueue.cancelAllOperations()
-        print("Router Deiniting \(ObjectIdentifier(self))")
+        NavigationLogger.debug("Router deiniting")
     }
-    
+
     private func executeOperation(_ operation: @escaping @MainActor () -> Void) {
         let delay = waitForUIUpdate ? operationDelay : 0
 
@@ -110,27 +114,25 @@ public class Router: Identifiable, Sendable {
             }
         }
     }
-    
+
     // MARK: - Navigation API
     public func push<Content: View>(allowBackSwipe: Bool = true, @ViewBuilder _ destination: @escaping () -> Content) {
         executeOperation { [weak self] in
             guard let self else {
-                print("❌ [PUSH] Router is nil, operation cancelled")
+                NavigationLogger.error("PUSH - Router is nil, operation cancelled")
                 return
             }
-            let routerId = ObjectIdentifier(self)
-            print("🔵 [PUSH] Router(\(routerId)) - Current path count: \(path.count)")
-            
+            NavigationLogger.debug("PUSH - Current path count: \(path.count)")
+
             let wrapper = DestinationWrapper(
                 destination: AnyView(destination()),
                 allowsBackSwipe: allowBackSwipe
             )
-            SwipeConfiguration.backSwipeAvailable = allowBackSwipe
             path.append(wrapper)
-            print("✅ [PUSH] Router(\(routerId)) - Pushed. New path count: \(path.count)")
+            NavigationLogger.debug("PUSH - Pushed. New path count: \(path.count)")
         }
     }
-    
+
     @MainActor
     private func replaceRootWithAnimation<Content: View>(_ newRootViewGenerator: @escaping () -> Content) {
         let newRootID = UUID()
@@ -140,7 +142,7 @@ public class Router: Identifiable, Sendable {
             self.path.removeAll()
         }
     }
-    
+
     @MainActor
     private func replacingPushAnimated<Content: View>(_ destination: @escaping () -> Content) async {
         // Path is not empty. Replace the top view on the stack with an animation.
@@ -155,172 +157,170 @@ public class Router: Identifiable, Sendable {
         do {
             try await Task.sleep(nanoseconds: 400_000_000) // 400ms
         } catch {
-            // Handle cancellation if necessary, e.g., by not proceeding.
-            print("Task.sleep in replacingPushAnimated was cancelled: \(error)")
+            NavigationLogger.warning("replacingPushAnimated - Task.sleep cancelled: \(error)")
             return
         }
         // Operation 2: Remove the item that was previously at the top (now second to last).
         // Do this without animation.
-        // The existing executeOperation mechanism provides a small delay (operationDelay)
-        // between Op1 and Op2 here.
         executeOperation { [weak self] in
             guard let self = self else { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                // If path has at least 2 items (original_top, new_destination), remove original_top.
                 if self.path.count >= 2 {
                     self.path.remove(at: self.path.count - 2)
                 }
             }
         }
     }
-    
+
     public func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping () -> Content) {
-        // Check current path state to decide strategy. Router is @MainActor.
-        if self.path.isEmpty {
-            // Use the new method for root replacement if path is empty
-            executeOperation { [weak self] in
-                self?.replaceRootWithAnimation(destination)
+        executeOperation { [weak self] in
+            guard let self else {
+                NavigationLogger.error("replacingPush - Router is nil")
+                return
             }
-        } else {
-            executeOperation {
+
+            if self.path.isEmpty {
+                // No pushed views — replace the root
+                self.replaceRootWithAnimation(destination)
+                NavigationLogger.debug("replacingPush - replaced root (path was empty)")
+            } else {
+                // Push new view, then remove the old top
+                // Before append: path = [A, B, C] (C is current top)
+                // After append:  path = [A, B, C, D]
+                // Remove at count-2: removes C → path = [A, B, D] ✓
                 self.path.append(DestinationWrapper(destination: AnyView(destination())))
-                self.path.remove(at: self.path.count - 3)
+                let removeIndex = self.path.count - 2
+                guard removeIndex >= 0 else {
+                    NavigationLogger.warning("replacingPush - unexpected state, removeIndex=\(removeIndex)")
+                    return
+                }
+                self.path.remove(at: removeIndex)
+                NavigationLogger.debug("replacingPush - replaced top, path count=\(self.path.count)")
             }
         }
     }
-    
+
     public func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping () -> Content) {
-        // Replace the entire navigation stack with the new destination as the root, animated as a push.
-        // Use the new method for root replacement
         executeOperation { [weak self] in
             self?.replaceRootWithAnimation(destination)
         }
     }
-    
+
     public func pop() {
         executeOperation { [weak self] in
             guard let self = self else {
-                print("❌ [POP] Router is nil, operation cancelled")
+                NavigationLogger.error("POP - Router is nil, operation cancelled")
                 return
             }
-            let routerId = ObjectIdentifier(self)
-            print("🔙 [POP] Router(\(routerId)) - Current path: \(path.count)")
-            
+            NavigationLogger.debug("POP - Current path: \(path.count)")
+
             if !path.isEmpty {
-                let destination = path.removeLast()
-                SwipeConfiguration.backSwipeAvailable = destination.allowsBackSwipe
-                print("✅ [POP] Router(\(routerId)) - Popped. New path: \(path.count)")
+                path.removeLast()
+                NavigationLogger.debug("POP - Popped. New path: \(path.count)")
             } else {
-                print("⚠️ [POP] Router(\(routerId)) - Path empty, nothing to pop")
+                NavigationLogger.warning("POP - Path empty, nothing to pop")
             }
         }
     }
-    
+
     public func popToRoot() {
         executeOperation { [weak self] in
             guard let self = self else { return }
-            let routerId = ObjectIdentifier(self)
-            print("🏠 [POPTOROOT] Router(\(routerId)) - Clearing path of \(path.count) items")
+            NavigationLogger.debug("POPTOROOT - Clearing path of \(path.count) items")
             path.removeAll()
-            print("✅ [POPTOROOT] Router(\(routerId)) - Path cleared")
+            NavigationLogger.debug("POPTOROOT - Path cleared")
         }
     }
-    
+
     // MARK: - Sheets & Covers
     public func present<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
         executeOperation { [weak self] in
             guard let self = self else {
-                print("❌ [PRESENT] Router is nil, operation cancelled")
+                NavigationLogger.error("PRESENT - Router is nil, operation cancelled")
                 return
             }
-            
+
             guard !isPresenting else {
                 printAlreadyPresenting()
                 return
             }
-            
-            let routerId = ObjectIdentifier(self)
-            let hasParent = parent != nil
-            print("🟣 [PRESENT] Router(\(routerId)) hasParent=\(hasParent) - Setting fullscreen")
+
+            NavigationLogger.debug("PRESENT - hasParent=\(parent != nil) - Setting fullscreen")
             onFullScreenDismiss = onDismiss
             let newRouter = Router(parent: self, root: destination)
             self.fullScreenDestination = newRouter
         }
     }
-    
+
     public func sheet<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
         executeOperation { [weak self] in
             guard let self = self else {
-                print("❌ [SHEET] Router is nil, operation cancelled")
+                NavigationLogger.error("SHEET - Router is nil, operation cancelled")
                 return
             }
-            
+
             guard !isPresenting else {
                 printAlreadyPresenting()
                 return
             }
-            
-            let routerId = ObjectIdentifier(self)
-            let hasParent = parent != nil
-            print("🟡 [SHEET] Router(\(routerId)) hasParent=\(hasParent) - Setting sheet")
+
+            NavigationLogger.debug("SHEET - hasParent=\(parent != nil) - Setting sheet")
             onSheetDismiss = onDismiss
             let newRouter = Router(parent: self, root: destination)
             sheetDestination = newRouter
         }
     }
-    
+
     public func dismiss() {
         executeOperation { [weak self] in
             guard let self = self else {
-                print("❌ [DISMISS] Router is nil, operation cancelled")
+                NavigationLogger.error("DISMISS - Router is nil, operation cancelled")
                 return
             }
-            
+
             // Silently ignore dismiss if no parent (root view)
             guard parent != nil else {
                 return
             }
-            let routerId = ObjectIdentifier(self)
-            let parentId = parent.map { ObjectIdentifier($0) }
-            
-            print("🔴 [DISMISS] Router(\(routerId)) - Dismissing from parent(\(String(describing: parentId)))")
+
+            NavigationLogger.debug("DISMISS - Dismissing from parent")
             if parent?.sheetDestination != nil {
                 parent?.sheetDestination = nil
-                print("✅ [DISMISS] Router(\(routerId)) - Cleared parent's sheet")
+                NavigationLogger.debug("DISMISS - Cleared parent's sheet")
                 return
             }
             if parent?.fullScreenDestination != nil {
                 parent?.fullScreenDestination = nil
-                print("✅ [DISMISS] Router(\(routerId)) - Cleared parent's fullscreen")
+                NavigationLogger.debug("DISMISS - Cleared parent's fullscreen")
                 return
             }
-            print("⚠️ [DISMISS] Router(\(routerId)) - No parent destination to clear")
+            NavigationLogger.warning("DISMISS - No parent destination to clear")
         }
     }
-    
+
     public func dismissPresented() {
         executeOperation { [weak self] in
             guard let self = self else {
-                print("❌ [DISMISS] Router is nil, operation cancelled")
+                NavigationLogger.error("DISMISS_PRESENTED - Router is nil, operation cancelled")
                 return
             }
-            
+
             if sheetDestination != nil {
                 sheetDestination?.dismiss()
             } else if fullScreenDestination != nil {
                 fullScreenDestination?.dismiss()
             } else {
-                print("⚠️ [DISMISS] Router(\(ObjectIdentifier(self))) - No presented view to dismiss")
+                NavigationLogger.warning("DISMISS_PRESENTED - No presented view to dismiss")
             }
         }
     }
-    
+
     public func dismissToRoot() {
         executeOperation { [weak self] in
             guard let self = self else { return }
-            
+
             sheetDestination = nil
             fullScreenDestination = nil
             if let parent = parent {
@@ -334,12 +334,12 @@ public class Router: Identifiable, Sendable {
 extension Router {
     func printAlreadyPresenting() {
         if sheetDestination != nil {
-            print("❌ [PRESENT] Router already present a sheet, you cannot present other view while presenting sheet")
+            NavigationLogger.error("PRESENT - Router already presenting a sheet, cannot present another view")
             return
         }
-        
+
         if fullScreenDestination != nil {
-            print("❌ [PRESENT] Router already present a fullcreen cover, you cannot present other view while fullcreen cover")
+            NavigationLogger.error("PRESENT - Router already presenting a fullscreen cover, cannot present another view")
             return
         }
     }
