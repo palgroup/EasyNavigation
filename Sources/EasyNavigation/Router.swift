@@ -318,12 +318,19 @@ public class Router: Identifiable, Sendable {
             guard let self else { return }
             NavigationLogger.debug("RESET_TO_ROOT - Starting full reset")
 
+            // Disable both UIKit and SwiftUI animations for instant reset
+            UIView.setAnimationsEnabled(false)
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 self.sheetDestination = nil
                 self.fullScreenDestination = nil
                 self.path.removeAll()
+            }
+
+            // Re-enable after next runloop tick to ensure dismissals complete
+            DispatchQueue.main.async {
+                UIView.setAnimationsEnabled(true)
             }
 
             if let parent = self.parent {
