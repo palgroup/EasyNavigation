@@ -2,9 +2,9 @@
 
 **Author:** Claude (Expert Code Review)
 **Date:** 2026-03-13 (updated 2026-03-16)
-**Status:** Phase 1-4 COMPLETE, RouterStack REJECTED
+**Status:** Phase 1-4 COMPLETE, Phase 3 Hybrid COMPLETE, RouterStack REJECTED
 **Package:** `seklabsnet/EasyNavigation`
-**Current Version:** 2.2.1 (was 1.0.2)
+**Current Version:** 2.3.0 (was 1.0.2)
 **Platform:** iOS 18+
 **Swift Tools Version:** 6.1
 **Detailed Changelog:** `docs/CHANGELOG-v2.md`
@@ -20,6 +20,7 @@
 | Phase 3.5 — BackSwipeConfigurator | - | latest main | DONE |
 | Phase 4 — DeepLinkCenter | 2.2.0 | `v2.2.0-phase4` | DONE |
 | Phase 4.1 — Router.path public | 2.2.1 | `2.2.1` | DONE |
+| Phase 3 Hybrid — Deferred + Concrete Wrapper | 2.3.0 | `v2.3.0` | DONE |
 | RouterStack | - | - | REJECTED (not needed) |
 
 ---
@@ -1567,6 +1568,7 @@ Use Xcode Instruments to verify:
 | **2.1.0** | Phase 3 (AnyView reduction) | Maybe | Minor or Major depending on API impact |
 | **2.2.0** | Phase 4 (DeepLinkCenter) | No (additive) | Minor |
 | **2.2.1** | Router.path public readable | No (additive) | Patch |
+| **2.3.0** | Phase 3 Hybrid (deferred closure + concrete wrapper) | No (internal) | Minor |
 
 **Recommended approach:**
 1. Ship **1.0.3** immediately with Phase 1 fixes (no risk)

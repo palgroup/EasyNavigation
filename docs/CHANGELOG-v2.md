@@ -1,6 +1,6 @@
 # EasyNavigation v2.x — Changelog & Decision Log
 
-**Last Updated:** 2026-03-16 (Phase 4 eklendi)
+**Last Updated:** 2026-03-16 (Phase 3 Hybrid + Phase 4)
 **Original PRD:** `docs/PRD-EasyNavigation-v2.md`
 **Phase 3 Analysis:** `docs/Phase3-AnyView-Elimination.md`
 
@@ -25,6 +25,7 @@ Bu refactor Erkut ile birlikte yapildi. Asagidaki tum degisiklikler tek bir conv
 | `v2.2.0-phase4` | 515d046 | 2026-03-16 | Phase 4: DeepLinkCenter |
 | `2.2.0` | 515d046 | 2026-03-16 | SPM semver tag (Phase 4) |
 | `2.2.1` | 684fa80 | 2026-03-16 | Router.path public internal(set) |
+| `v2.3.0` | 50fd25c | 2026-03-16 | Phase 3 Hybrid: deferred closure + concrete wrapper |
 
 ---
 
@@ -177,6 +178,48 @@ Phase 3 icin 3 yaklasim detayli analiz edildi (`docs/Phase3-AnyView-Elimination.
 
 ---
 
+## Phase 3 Hybrid — Deferred Closure + Concrete Wrapper (v2.3.0)
+
+### Arka Plan
+
+AnyView performans benchmark'lari arastirildi (Alexey Naumov, Swift Forums). Navigation stack (1-20 item) icin AnyView performans farki ihmal edilebilir. ANCAK EasyNavigation bir SPM paketi — birden fazla app'te kullanilacak. API'yi sonra degistirmek tum consumer'lari kirar. Tek consumer varken temeli saglam atmak en ucuz zaman.
+
+**Karar:** Performans icin degil, mimari dogruluk ve kutuphane kalitesi icin implement edildi.
+
+### Yapilan Degisiklikler
+
+#### 1. DestinationWrapper — Deferred Closure + Concrete Wrapper
+- **Ne:** `let destination: AnyView` → `private let _makeContent: @MainActor @Sendable () -> AnyView` + `DestinationContentView` concrete wrapper
+- **Neden:** View push aninda degil render aninda olusturuluyor (semantic dogruluk, stale capture onleme, memory azaltma)
+- **Yeni:** `DestinationContentView` struct — SwiftUI'ye stable structural identity veriyor
+
+#### 2. Router — Deferred Root + Push Callsite Guncelleme
+- **Ne:** `var root: AnyView` → `private var _makeRoot: @MainActor @Sendable () -> AnyView` + `RootContentView` concrete wrapper
+- **Push:** `AnyView(destination())` → `DestinationWrapper(content: destination)` (deferred)
+- **replacingPush:** Ayni deferred pattern
+- **replaceRootWithAnimation:** `self.root = AnyView(...)` → `self._makeRoot = { AnyView(...) }`
+- **cleanup:** `self.root = AnyView(EmptyView())` → `self._makeRoot = { AnyView(EmptyView()) }`
+- **push() signature:** `@Sendable` closure requirement eklendi
+
+#### 3. ViewNavigationWrapper — Concrete Rendering
+- **Ne:** `router.root` → `router.rootView`, `wrapper.destination` → `wrapper.contentView`
+- **Neden:** SwiftUI concrete `RootContentView`/`DestinationContentView` tiplerini gorup structural identity kurtariyor
+
+#### 4. WindowOverlay — Deferred + Concrete Wrapper
+- **Ne:** `public var view: AnyView` → `let makeContent: ... () -> AnyView` + `OverlayContentView` concrete wrapper
+- **addView:** View artik deferred closure olarak saklaniyor
+
+#### 5. GlobalRouter — Deferred + ContentView
+- **Ne:** `view: AnyView(content())` → `makeContent: { AnyView(content()) }`, rendering `$0.contentView`
+
+### Sonuc
+- Sifir API kirilmasi (consumer kodu degistirmeden calisiyor)
+- 34/34 test geciyor
+- View'lar render aninda olusturuluyor (push aninda degil)
+- SwiftUI'ye concrete wrapper uzerinden structural identity ipucu veriliyor
+
+---
+
 ## Phase 4 — DeepLinkCenter (v2.2.0-phase4)
 
 ### Yapilan Degisiklikler
@@ -321,7 +364,7 @@ docs/
 ### Repository Memory
 - Package: seklabsnet/EasyNavigation (GitHub)
 - Platform: iOS 18+, Swift 6.1
-- Current version: 2.2.1
+- Current version: 2.3.0
 - Consumer: centauri-ios projesi (CometChat SDK de kullaniyor)
 - Test: xcodebuild test ile iOS Simulator'da calistiriliyor (swift test calismaz — Testing framework)
 - Build: `swift build --sdk \`xcrun --sdk iphonesimulator --show-sdk-path\` -Xswiftc -target -Xswiftc arm64-apple-ios18.0-simulator`
