@@ -306,6 +306,29 @@ public class Router: Identifiable, Sendable {
             }
         }
     }
+
+    /// Nuclear reset — dismisses ALL presentations AND clears ALL pushes.
+    /// Walks up the entire parent chain, at each level:
+    /// 1. Clears sheetDestination and fullScreenDestination
+    /// 2. Clears the push path
+    /// Then continues to the parent until reaching the root router.
+    /// One call = back to home screen, no matter how deep you are.
+    public func resetToRoot() {
+        executeOperation { [weak self] in
+            guard let self else { return }
+            NavigationLogger.debug("RESET_TO_ROOT - Starting full reset")
+
+            self.sheetDestination = nil
+            self.fullScreenDestination = nil
+            self.path.removeAll()
+
+            if let parent = self.parent {
+                parent.resetToRoot()
+            } else {
+                NavigationLogger.debug("RESET_TO_ROOT - Reached root router, reset complete")
+            }
+        }
+    }
 }
 
 
