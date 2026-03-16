@@ -318,9 +318,13 @@ public class Router: Identifiable, Sendable {
             guard let self else { return }
             NavigationLogger.debug("RESET_TO_ROOT - Starting full reset")
 
-            self.sheetDestination = nil
-            self.fullScreenDestination = nil
-            self.path.removeAll()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                self.sheetDestination = nil
+                self.fullScreenDestination = nil
+                self.path.removeAll()
+            }
 
             if let parent = self.parent {
                 parent.resetToRoot()
