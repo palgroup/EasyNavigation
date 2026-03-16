@@ -313,31 +313,27 @@ public class Router: Identifiable, Sendable {
     /// 2. Clears the push path
     /// Then continues to the parent until reaching the root router.
     /// One call = back to home screen, no matter how deep you are.
+    /// Nuclear reset — dismisses ALL presentations AND clears ALL pushes.
+    /// Walks up to the root router first, then clears from the top down.
+    /// Child routers are deallocated automatically when parent's destination becomes nil.
+    /// Only one dismiss animation plays (the topmost presentation).
     public func resetToRoot() {
         executeOperation { [weak self] in
             guard let self else { return }
             NavigationLogger.debug("RESET_TO_ROOT - Starting full reset")
 
-            // Disable both UIKit and SwiftUI animations for instant reset
-            UIView.setAnimationsEnabled(false)
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                self.sheetDestination = nil
-                self.fullScreenDestination = nil
-                self.path.removeAll()
+            // Find the absolute root router
+            var root: Router = self
+            while let parent = root.parent {
+                root = parent
             }
 
-            // Re-enable after next runloop tick to ensure dismissals complete
-            DispatchQueue.main.async {
-                UIView.setAnimationsEnabled(true)
-            }
+            // Clear from root — child routers dealloc automatically
+            root.sheetDestination = nil
+            root.fullScreenDestination = nil
+            root.path.removeAll()
 
-            if let parent = self.parent {
-                parent.resetToRoot()
-            } else {
-                NavigationLogger.debug("RESET_TO_ROOT - Reached root router, reset complete")
-            }
+            NavigationLogger.debug("RESET_TO_ROOT - Reset complete from root")
         }
     }
 }
