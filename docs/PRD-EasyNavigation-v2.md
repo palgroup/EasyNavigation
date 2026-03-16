@@ -2,9 +2,9 @@
 
 **Author:** Claude (Expert Code Review)
 **Date:** 2026-03-13 (updated 2026-03-16)
-**Status:** Phase 1-3 COMPLETE, Phase 4 pending product decision
+**Status:** Phase 1-4 COMPLETE, RouterStack REJECTED
 **Package:** `seklabsnet/EasyNavigation`
-**Current Version:** 2.1.0 (was 1.0.2)
+**Current Version:** 2.2.1 (was 1.0.2)
 **Platform:** iOS 18+
 **Swift Tools Version:** 6.1
 **Detailed Changelog:** `docs/CHANGELOG-v2.md`
@@ -18,7 +18,9 @@
 | Phase 2 — AsyncStream + Tests | 2.0.0 | `v2.0.0-phase2` | DONE |
 | Phase 3 — Performance + ViewDestination | 2.1.0 | `v2.1.0-phase3` | DONE |
 | Phase 3.5 — BackSwipeConfigurator | - | latest main | DONE |
-| Phase 4 — DeepLink + RouterStack | 2.2.0 | - | PENDING (product decision) |
+| Phase 4 — DeepLinkCenter | 2.2.0 | `v2.2.0-phase4` | DONE |
+| Phase 4.1 — Router.path public | 2.2.1 | `2.2.1` | DONE |
+| RouterStack | - | - | REJECTED (not needed) |
 
 ---
 
@@ -1450,13 +1452,61 @@ G4 (UINavController) ◄── PHASE 2 ──► G8 (Tests)
 - Removed unused `import Combine` from NavigationWrapper/RouterWrapper
 - Added `BackSwipeConfigurator` (scoped replacement for removed UINavigationController extension)
 
-### Phase 4 — Features (v2.2.0) — Future
+### Phase 4 — DeepLinkCenter (v2.2.0) — DONE
 
-**Scope:** DeepLinkCenter and RouterStack revival.
-**Effort:** ~14 hours
-**Risk:** Medium
+**Scope:** URL-based deep linking via sheets.
+**Effort:** ~2 hours
+**Risk:** Low
 
-Not detailed here — depends on feature requirements.
+#### Yapilan Degisiklikler
+
+**1. DeepLinkCenter.swift olusturuldu (146 satir)**
+- URL → View mapping: Consumer `register()` ile handler kaydeder, framework URL parse'a karismaz
+- Deep link gelince **sheet** olarak acilir (push degil) — kullanicinin mevcut navigation state'i korunur
+- Router hazir degilse URL'ler kuyrukta bekler, `setRootRouter()` cagrilinca son URL teslim edilir
+- Zaten sheet/fullscreen aciksa otomatik dismiss edilir, yeni deep link acilir
+- Router `weak` tutulur (retain cycle yok)
+- `clearPending()` ile kuyruk temizlenebilir
+
+**2. AppRoot.swift guncellendi**
+- Opsiyonel `deepLinkCenter` parametreli yeni init eklendi
+- Mevcut init degismedi (backward compatible)
+
+**3. Router.path `public internal(set)` yapildi (v2.2.1)**
+- Consumer'in `path.count`, `path.isEmpty` gibi read-only erisimi icin
+- DevMode stress test yazarken ihtiyac ortaya cikti
+
+**4. 9 unit test eklendi (DeepLinkCenterTests.swift)**
+- handle, register, pending queue, clearPending, setRootRouter, dismiss-before-present, unknown URL, multiple handlers
+
+**Consumer kullanimi:**
+```swift
+let deepLinkCenter = DeepLinkCenter()
+
+deepLinkCenter.register { url in
+    if url.path.contains("profile") {
+        return ProfileView(userId: url.lastPathComponent)
+    }
+    return nil
+}
+
+// AppRoot'ta:
+AppRoot(deepLinkCenter: deepLinkCenter) { ... }
+
+// URL handle:
+.onOpenURL { url in deepLinkCenter.handle(url) }
+```
+
+### RouterStack — REJECTED
+
+**Karar:** RouterStack (global router tracking) implementasyonu gerekmedigine karar verildi.
+
+**Nedenler:**
+1. "Herhangi bir yerden ana sayfaya don" → `router.dismissToRoot()` zaten parent chain ile recursive calisiyor
+2. "En ustteki router'a bir sey goster" → DeepLinkCenter root router uzerinden sheet acarak cozuyor
+3. Analytics tracking → genelde analytics SDK'lari kendi tracking'ini yapar
+
+**Sonuc:** Tum kullanim senaryolari mevcut API'larla zaten cozulmus. Eklemek speculative complexity olur. Gercek bir ihtiyac dogarsa sonra eklenebilir.
 
 ---
 
@@ -1515,7 +1565,8 @@ Use Xcode Instruments to verify:
 | **1.0.3** | Phase 1 only (fixes, no API change) | No | Patch — safe for all consumers |
 | **2.0.0** | Phase 1 + Phase 2 | Yes (removes `operationDelay`, `waitForUIUpdate`, dead public types) | Major — update consumers |
 | **2.1.0** | Phase 3 (AnyView reduction) | Maybe | Minor or Major depending on API impact |
-| **2.2.0** | Phase 4 (DeepLink, RouterStack) | No (additive) | Minor |
+| **2.2.0** | Phase 4 (DeepLinkCenter) | No (additive) | Minor |
+| **2.2.1** | Router.path public readable | No (additive) | Patch |
 
 **Recommended approach:**
 1. Ship **1.0.3** immediately with Phase 1 fixes (no risk)
@@ -1588,8 +1639,8 @@ All Phase 1 + Phase 2 criteria met, plus:
 |---|----------|-------------------|--------|
 | **OQ-1** | AnyView elimination: Enum routing (A), Generic ViewBuilder (B), or Hybrid (C)? | Team | Phase 3 |
 | **OQ-2** | Is per-view back swipe control a requirement? Or can we drop it entirely? | Product/UX | G4 approach |
-| **OQ-3** | Should DeepLinkCenter come back in v2.2? Is deep linking a planned feature? | Product | Phase 4 scope |
-| **OQ-4** | Should RouterStack (global router tracking) come back? What's the use case? | Product | Phase 4 scope |
+| **OQ-3** | ~~Should DeepLinkCenter come back in v2.2?~~ | ~~Product~~ | **RESOLVED: Yes, implemented in v2.2.0** |
+| **OQ-4** | ~~Should RouterStack come back?~~ | ~~Product~~ | **RESOLVED: No, REJECTED — all use cases covered by existing API** |
 | **OQ-5** | iOS 18 minimum — is this acceptable? Or need iOS 17 support? | Product | Package.swift |
 | **OQ-6** | StressTest views — move to a separate `EasyNavigationDemo` app target? | Team | G6 |
 | **OQ-7** | `operationDelay`/`waitForUIUpdate` — deprecate or hard-remove in v2.0? | Team | G1 API surface |
@@ -1610,16 +1661,16 @@ All Phase 1 + Phase 2 criteria met, plus:
 | `DestinationWrapper.swift` | Remove @unchecked Sendable | — |
 | `NavigationLogger.swift` | 🆕 Create | — |
 | `BackSwipeController.swift` | — | 🆕 Create (if OQ-2 = yes) |
-| `RouterStack.swift` | 🗑️ Delete | — |
-| `DeepLinkCenter.swift` | 🗑️ Delete | — |
+| `RouterStack.swift` | 🗑️ Delete (Phase 1) | REJECTED — not revived |
+| `DeepLinkCenter.swift` | 🗑️ Delete (Phase 1) → 🆕 Recreated (Phase 4) | Sheet-based URL deep linking |
 | `RouterStressTest.swift` | 🗑️ Delete | — |
 | `Tests/*` | — | 🆕 Create 5 test files |
 
 ### B. Public API Changes (v1.0.2 → v2.0.0)
 
 **Removed types:**
-- `RouterStack` (was public but non-functional)
-- `DeepLinkCenter` (was public but non-functional)
+- `RouterStack` (was public but non-functional — REJECTED, not revived)
+- Old `DeepLinkCenter` (was public but non-functional — recreated as new in v2.2.0)
 - `StressTestTabView` (was public, demo code)
 
 **Removed properties:**
@@ -1628,10 +1679,13 @@ All Phase 1 + Phase 2 criteria met, plus:
 
 **Added properties:**
 - `Router.isBackSwipeAllowed: Bool` (computed, reactive)
+- `Router.path: [DestinationWrapper]` (public internal(set), v2.2.1)
 
 **Added types:**
 - `NavigationLogger` (internal, not public)
-- `BackSwipeConfigurator` (internal, not public — if OQ-2 = yes)
+- `BackSwipeConfigurator` (internal, not public)
+- `DeepLinkCenter` (public, v2.2.0 — URL-based deep linking via sheets)
+- `ViewDestination` protocol (public, v2.1.0 — enum-based type-safe routing)
 
 **Unchanged public API:**
 - `Router.push()`, `pop()`, `popToRoot()`

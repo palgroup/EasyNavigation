@@ -1,6 +1,6 @@
 # EasyNavigation v2.x — Changelog & Decision Log
 
-**Last Updated:** 2026-03-16
+**Last Updated:** 2026-03-16 (Phase 4 eklendi)
 **Original PRD:** `docs/PRD-EasyNavigation-v2.md`
 **Phase 3 Analysis:** `docs/Phase3-AnyView-Elimination.md`
 
@@ -22,6 +22,9 @@ Bu refactor Erkut ile birlikte yapildi. Asagidaki tum degisiklikler tek bir conv
 | `v2.1.0-phase3` | e1e91fb | 2026-03-15 | Phase 3: .id() fix + ViewDestination |
 | (no tag) | 594bb2c | 2026-03-15 | .id(router.id) + Combine import temizligi |
 | (no tag) | a326797 | 2026-03-15 | BackSwipeConfigurator eklendi |
+| `v2.2.0-phase4` | 515d046 | 2026-03-16 | Phase 4: DeepLinkCenter |
+| `2.2.0` | 515d046 | 2026-03-16 | SPM semver tag (Phase 4) |
+| `2.2.1` | 684fa80 | 2026-03-16 | Router.path public internal(set) |
 
 ---
 
@@ -174,14 +177,72 @@ Phase 3 icin 3 yaklasim detayli analiz edildi (`docs/Phase3-AnyView-Elimination.
 
 ---
 
+## Phase 4 — DeepLinkCenter (v2.2.0-phase4)
+
+### Yapilan Degisiklikler
+
+#### 1. DeepLinkCenter.swift Olusturuldu (146 satir)
+- **Ne:** URL-based deep linking sistemi. Consumer `register()` ile URL → View handler kaydeder, `handle(url)` ile URL'leri isler.
+- **Neden:** Phase 1'de silinen eski DeepLinkCenter non-functional'di (tamami commented-out). Yeni implementasyon sifirdan yazildi, tamamen farkli tasarimla.
+- **Tasarim kararlari:**
+  - Deep link gelince **sheet** olarak acilir (push degil) — kullanicinin mevcut navigation state'i korunur
+  - Framework URL parse'a karismaz — consumer kendi handler'inda URL'i yorumlar
+  - Router hazir degilse URL'ler `pendingURLs` kuyruğunda bekler, `setRootRouter()` cagrilinca son URL teslim edilir
+  - Zaten sheet/fullscreen aciksa otomatik dismiss edilir, sonra yeni deep link acilir
+  - Router `weak` referansla tutulur (retain cycle yok)
+  - `clearPending()` ile kuyruk temizlenebilir
+- **Public API:**
+  - `DeepLinkCenter()` — init
+  - `register(handler:)` — URL → View? handler kaydi
+  - `handle(_ url:)` — URL'i isle
+  - `setRootRouter(_ router:)` — root router'i bagla
+  - `clearPending()` — bekleyen URL'leri temizle
+
+#### 2. AppRoot.swift Guncellendi
+- **Ne:** Opsiyonel `deepLinkCenter` parametreli yeni init eklendi
+- **Neden:** Consumer'in AppRoot seviyesinde DeepLinkCenter entegrasyonu yapabilmesi icin
+- **Eski init:** Ayni kaldi (backward compatible)
+
+#### 3. 9 Unit Test (DeepLinkCenterTests.swift)
+- **Testler:** handle, register, pending queue, clearPending, setRootRouter, dismiss-before-present, unknown URL, multiple handlers
+- **Toplam test sayisi:** 34 (25 mevcut + 9 yeni)
+
+---
+
+## Phase 4.1 — Router.path Public (v2.2.1)
+
+### Yapilan Degisiklikler
+
+#### 1. Router.path `public internal(set)` Yapildi
+- **Ne:** `Router.swift`'te `var path` → `public internal(set) var path`
+- **Neden:** Consumer'in `path.count`, `path.isEmpty` gibi read-only erisimi olmasi icin. DevMode stress test yazarken ihtiyac ortaya cikti.
+- **Etki:** Additive, breaking degisiklik yok
+
+---
+
+## RouterStack — REJECTED
+
+### Karar
+RouterStack (global router tracking) implementasyonu gerekmedigine karar verildi.
+
+### Nedenler
+1. **"Herhangi bir yerden ana sayfaya don"** → `router.dismissToRoot()` zaten parent chain ile recursive calisiyor
+2. **"En ustteki router'a bir sey goster"** → DeepLinkCenter root router uzerinden sheet acarak cozuyor
+3. **Analytics tracking** → genelde analytics SDK'lari kendi tracking'ini yapar
+
+### Sonuc
+Tum kullanim senaryolari mevcut API'larla zaten cozulmus. Eklemek speculative complexity olur. Gercek bir ihtiyac dogarsa sonra eklenebilir.
+
+---
+
 ## Mevcut Dosya Envanteri (2026-03-16)
 
 ```
 Sources/EasyNavigation/
 ├── EasyNavigation.swift              # Entry point (no-op)
-├── Router.swift                      # Core — AsyncStream based, ~316 satir
+├── Router.swift                      # Core — AsyncStream based, ~320 satir
 ├── ViewNavigationWrapper.swift       # NavigationStack + sheet/fullscreen bindings
-├── AppRoot.swift                     # GlobalRouter environment injection
+├── AppRoot.swift                     # GlobalRouter environment injection + DeepLinkCenter
 ├── GlobalRouter.swift                # Window overlay management
 ├── WindowOverlay.swift               # PassThroughWindow + overlay modifier
 ├── NavigationWrapper.swift           # @NavigationWrapper property wrapper
@@ -190,16 +251,18 @@ Sources/EasyNavigation/
 ├── NavigationInformations.swift      # isPushed/isPresented state
 ├── ViewDestinationRepresentable.swift # ViewDestination protocol + deprecated old
 ├── NavigationLogger.swift            # os.Logger wrapper
-└── BackSwipeConfigurator.swift       # Scoped back swipe control
+├── BackSwipeConfigurator.swift       # Scoped back swipe control
+└── DeepLinkCenter.swift              # URL-based deep linking via sheets (Phase 4)
 
 Tests/EasyNavigationTests/
 ├── RouterTests.swift                 # 8 test
 ├── RouterPresentationTests.swift     # 8 test
 ├── RouterEdgeCaseTests.swift         # 9 test
+├── DeepLinkCenterTests.swift         # 9 test (Phase 4)
 └── TestHelpers.swift                 # waitForRouterOperations helper
 
 docs/
-├── PRD-EasyNavigation-v2.md          # Original PRD (Phase 1-2 detayli, Phase 3-4 placeholder)
+├── PRD-EasyNavigation-v2.md          # Full PRD (Phase 1-4 + decisions)
 ├── Phase3-AnyView-Elimination.md     # Phase 3 derin analiz (AnyView, 3 yaklasim, neden Hybrid)
 └── CHANGELOG-v2.md                   # BU DOSYA — tum degisiklik logi
 ```
@@ -208,13 +271,13 @@ docs/
 
 ## Kalan Acik Maddeler
 
-### Karar Bekleyen
+### Cozulmus Kararlar
 
-| # | Madde | Durum | Karar Gerektiren |
-|---|-------|-------|-----------------|
-| 1 | DeepLinkCenter revival | Phase 4 — deep linking gerekli mi? | Product |
-| 2 | RouterStack revival | Phase 4 — global router tracking gerekli mi? | Product |
-| 3 | AnyView tam eliminasyonu | Generic Router gerektirir, tum API kirilir, 50+ ekran refactor | Mimari karar |
+| # | Madde | Durum | Sonuc |
+|---|-------|-------|-------|
+| 1 | DeepLinkCenter revival | **DONE** (v2.2.0) | Sifirdan yazildi, sheet-based deep linking |
+| 2 | RouterStack revival | **REJECTED** | Tum use case'ler mevcut API'larla zaten cozulmus |
+| 3 | AnyView tam eliminasyonu | **KARAR VERILDI** | Non-generic Router ile mumkun degil, trade-off kabul edilemez |
 
 ### Potansiyel Iyilestirmeler (oncelik dusuk)
 
@@ -223,16 +286,20 @@ docs/
 | 1 | Overlay system AnyView | GlobalRouter + WindowOverlay hala AnyView kullaniyor, deferred closure yapilabilir ama etki dusuk |
 | 2 | AnyView root storage | Router.root hala AnyView, deferred closure yapilabilir ama etki dusuk |
 | 3 | Test coverage artirma | GlobalRouter, NavigationInformations, ViewDestination testleri eksik |
+| 4 | DevMode path count | router.path.count DevMode'da placeholder — SPM cache sorunu cozulunce duzeltilmeli |
 
 ---
 
 ## Memory'ye Iletilmesi Gerekenler
 
+> **NOT:** Bu bolum em0 memory sistemi icin referanstir. Tum maddeler em0'ya kaydedildi (user_id: "easynavigation").
+
 ### Project Memory
-- EasyNavigation v1.0.2'den v2.1.0'a refactor yapildi (2026-03-15/16)
-- 4 phase tamamlandi: critical fixes → AsyncStream → performance fix → BackSwipeConfigurator
-- 1,306 satir olu kod silindi, 25 unit test eklendi
-- Kalan: DeepLinkCenter ve RouterStack karari bekleniyor (Phase 4)
+- EasyNavigation v1.0.2'den v2.2.1'e refactor yapildi (2026-03-15/16)
+- 5 phase tamamlandi: critical fixes → AsyncStream → performance fix → BackSwipeConfigurator → DeepLinkCenter
+- RouterStack REJECTED (tum use case'ler mevcut API'larla cozulmus)
+- 1,306 satir olu kod silindi, 34 unit test (25 core + 9 DeepLinkCenter)
+- centauri-ios'a DevMode navigation stress test eklendi (~25 interaktif senaryo)
 
 ### Technical Decisions Memory
 - AnyView tam eliminasyonu non-generic Router ile MUMKUN DEGIL — bu karar verildi ve belgelendi
@@ -241,6 +308,9 @@ docs/
 - UINavigationController extension yerine scoped BackSwipeConfigurator kullaniliyor
 - Thread.sleep + OperationQueue yerine AsyncStream + Task.yield kullaniliyor
 - print() yerine os.Logger (NavigationLogger) kullaniliyor
+- Deep link'ler sheet olarak acilir (push degil) — kullanicinin navigation state'i korunur
+- RouterStack gereksiz — dismissToRoot() + DeepLinkCenter tum senaryolari karsilar
+- Router.path public internal(set) — consumer read-only erisim icin
 
 ### User Preferences Memory
 - Erkut durustluk ve net analiz istiyor — kozmetik iyilestirme yerine gercek etki
@@ -251,7 +321,11 @@ docs/
 ### Repository Memory
 - Package: seklabsnet/EasyNavigation (GitHub)
 - Platform: iOS 18+, Swift 6.1
+- Current version: 2.2.1
 - Consumer: centauri-ios projesi (CometChat SDK de kullaniyor)
 - Test: xcodebuild test ile iOS Simulator'da calistiriliyor (swift test calismaz — Testing framework)
 - Build: `swift build --sdk \`xcrun --sdk iphonesimulator --show-sdk-path\` -Xswiftc -target -Xswiftc arm64-apple-ios18.0-simulator`
-- Simulator: iPhone 16 (id: DCC40CA0-886D-4F1D-A3F3-34E930B55459, OS 18.1)
+- EasyNavigation Simulator: iPhone 16 (id: DCC40CA0-886D-4F1D-A3F3-34E930B55459, OS 18.1)
+- centauri-ios Simulator: iPhone 16 Pro (id: C44E0B24-60A0-4BC8-897B-E371AEFF16F3, iOS 18.4)
+- centauri-ios scheme: "Development" veya "Production"
+- DevMode dosya yolu: white-label/Module/Presentation/DevMode/
