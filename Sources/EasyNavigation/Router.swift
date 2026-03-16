@@ -12,7 +12,7 @@ import SwiftUI
 public class Router: Identifiable, Sendable {
     public let id = UUID().uuidString
     var root: AnyView
-    var path: [DestinationWrapper] = []
+    public internal(set) var path: [DestinationWrapper] = []
     var fullScreenDestination: Router?
     @ObservationIgnored
     var onFullScreenDismiss: (() -> Void)?
