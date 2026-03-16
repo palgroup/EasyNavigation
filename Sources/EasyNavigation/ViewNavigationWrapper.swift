@@ -21,11 +21,11 @@ public struct ViewNavigationWrapper: View {
 
     public var body: some View {
         NavigationStack(path: $router.path) {
-            router.root
+            router.rootView
                 .environment(router)
                 .environment(createNavigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in
-                    wrapper.destination
+                    wrapper.contentView
                         .background(BackSwipeConfigurator(isEnabled: wrapper.allowsBackSwipe))
                         .toolbar(.hidden, for: .navigationBar)
                         .environment(router)

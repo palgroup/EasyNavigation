@@ -45,7 +45,7 @@ public final class GlobalRouter {
         @ViewBuilder content: @escaping () -> V
     ) {
         overlayProperties.views.append(
-            UniversalOverlayProperties.OverlayView(id: id, view: AnyView(content()))
+            UniversalOverlayProperties.OverlayView(id: id, makeContent: { AnyView(content()) })
         )
     }
 
@@ -60,7 +60,7 @@ fileprivate struct UniversalOverlayViews: View {
     var body: some View {
         ZStack {
             ForEach(properties.views, id: \.id) {
-                $0.view
+                $0.contentView
             }
         }
     }

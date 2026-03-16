@@ -41,9 +41,10 @@ fileprivate struct UniversalOverlayModifier<C: View>: ViewModifier {
         if properties.window != nil && viewID == nil {
             viewID = UUID().uuidString
             guard let viewID else { return }
+            let capturedView = view
             withAnimation(animation) {
                 properties.views.append(
-                    .init(id: viewID, view: AnyView(view))
+                    .init(id: viewID, makeContent: { AnyView(capturedView) })
                 )
             }
         }
@@ -70,7 +71,12 @@ public final class UniversalOverlayProperties {
 
     public struct OverlayView: Identifiable {
         public var id: String = UUID().uuidString
-        public var view: AnyView
+        let makeContent: @MainActor @Sendable () -> AnyView
+
+        /// Concrete view for rendering — gives SwiftUI stable structural identity
+        var contentView: OverlayContentView {
+            OverlayContentView(render: makeContent)
+        }
     }
 }
 
@@ -91,5 +97,14 @@ public class PassThroughWindow: UIWindow {
 
         // Overlay yoksa, pass through
         return nil
+    }
+}
+
+/// Concrete View type for SwiftUI structural identity at the overlay level.
+struct OverlayContentView: View {
+    let render: @MainActor @Sendable () -> AnyView
+
+    var body: some View {
+        render()
     }
 }

@@ -11,7 +11,8 @@ import SwiftUI
 @Observable
 public class Router: Identifiable, Sendable {
     public let id = UUID().uuidString
-    var root: AnyView
+    /// Deferred root view construction — only evaluated when SwiftUI renders
+    private var _makeRoot: @MainActor @Sendable () -> AnyView
     public internal(set) var path: [DestinationWrapper] = []
     var fullScreenDestination: Router?
     @ObservationIgnored
@@ -21,6 +22,11 @@ public class Router: Identifiable, Sendable {
     var onSheetDismiss: (() -> Void)?
 
     var rootViewID: UUID = UUID()
+
+    /// Concrete wrapper for root view rendering — gives SwiftUI stable structural identity
+    var rootView: RootContentView {
+        RootContentView(render: _makeRoot)
+    }
 
     @ObservationIgnored
     weak var parent: Router?
@@ -47,7 +53,7 @@ public class Router: Identifiable, Sendable {
         @ViewBuilder root: @escaping () -> Content
     ) {
         self.parent = parent
-        self.root = AnyView(root())
+        self._makeRoot = { AnyView(root()) }
         self.rootViewID = UUID()
         startOperationProcessor()
     }
@@ -105,7 +111,7 @@ public class Router: Identifiable, Sendable {
         // CRITICAL: Clear root view to break environment capture
         // The AnyView captures the entire environment including this router
         // Replacing it with EmptyView breaks the retain cycle
-        self.root = AnyView(EmptyView())
+        self._makeRoot = { AnyView(EmptyView()) }
 
         NavigationLogger.debug("CLEANUP - Complete")
     }
@@ -117,7 +123,8 @@ public class Router: Identifiable, Sendable {
     }
 
     // MARK: - Navigation API
-    public func push<Content: View>(allowBackSwipe: Bool = true, @ViewBuilder _ destination: @escaping () -> Content) {
+    public func push<Content: View>(allowBackSwipe: Bool = true, @ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+        let dest = destination
         executeOperation { [weak self] in
             guard let self else {
                 NavigationLogger.error("PUSH - Router is nil, operation cancelled")
@@ -126,8 +133,8 @@ public class Router: Identifiable, Sendable {
             NavigationLogger.debug("PUSH - Current path count: \(self.path.count)")
 
             let wrapper = DestinationWrapper(
-                destination: AnyView(destination()),
-                allowsBackSwipe: allowBackSwipe
+                allowsBackSwipe: allowBackSwipe,
+                content: dest
             )
             self.path.append(wrapper)
             NavigationLogger.debug("PUSH - Pushed. New path count: \(self.path.count)")
@@ -138,13 +145,14 @@ public class Router: Identifiable, Sendable {
     private func replaceRootWithAnimation<Content: View>(_ newRootViewGenerator: @escaping () -> Content) {
         let newRootID = UUID()
         withAnimation(.default) {
-            self.root = AnyView(newRootViewGenerator())
+            self._makeRoot = { AnyView(newRootViewGenerator()) }
             self.rootViewID = newRootID
             self.path.removeAll()
         }
     }
 
-    public func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping () -> Content) {
+    public func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+        let dest = destination
         executeOperation { [weak self] in
             guard let self else {
                 NavigationLogger.error("replacingPush - Router is nil")
@@ -153,14 +161,14 @@ public class Router: Identifiable, Sendable {
 
             if self.path.isEmpty {
                 // No pushed views — replace the root
-                self.replaceRootWithAnimation(destination)
+                self.replaceRootWithAnimation(dest)
                 NavigationLogger.debug("replacingPush - replaced root (path was empty)")
             } else {
                 // Push new view, then remove the old top
                 // Before append: path = [A, B, C] (C is current top)
                 // After append:  path = [A, B, C, D]
                 // Remove at count-2: removes C → path = [A, B, D] ✓
-                self.path.append(DestinationWrapper(destination: AnyView(destination())))
+                self.path.append(DestinationWrapper(content: dest))
                 let removeIndex = self.path.count - 2
                 guard removeIndex >= 0 else {
                     NavigationLogger.warning("replacingPush - unexpected state, removeIndex=\(removeIndex)")
@@ -305,17 +313,20 @@ public class Router: Identifiable, Sendable {
 extension Router {
     /// Push a ViewDestination-conforming route (enum routing)
     public func push<D: ViewDestination>(_ destination: D, allowBackSwipe: Bool = true) {
-        push(allowBackSwipe: allowBackSwipe) { destination.body }
+        nonisolated(unsafe) let body = destination.body
+        push(allowBackSwipe: allowBackSwipe) { body }
     }
 
     /// Present a ViewDestination-conforming route as fullscreen
     public func present<D: ViewDestination>(_ destination: D, onDismiss: (() -> Void)? = nil) {
-        present({ destination.body }, onDismiss: onDismiss)
+        nonisolated(unsafe) let body = destination.body
+        present({ body }, onDismiss: onDismiss)
     }
 
     /// Present a ViewDestination-conforming route as sheet
     public func sheet<D: ViewDestination>(_ destination: D, onDismiss: (() -> Void)? = nil) {
-        sheet({ destination.body }, onDismiss: onDismiss)
+        nonisolated(unsafe) let body = destination.body
+        sheet({ body }, onDismiss: onDismiss)
     }
 }
 
@@ -330,5 +341,14 @@ extension Router {
             NavigationLogger.error("PRESENT - Router already presenting a fullscreen cover, cannot present another view")
             return
         }
+    }
+}
+
+/// Concrete View type for SwiftUI structural identity at the root level.
+struct RootContentView: View {
+    let render: @MainActor @Sendable () -> AnyView
+
+    var body: some View {
+        render()
     }
 }
