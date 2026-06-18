@@ -11,8 +11,8 @@ import SwiftUI
 public struct ViewNavigationWrapper: View {
     @State var router: Router
 
-    public init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
-        self._router = State(initialValue: Router(root: content))
+    public init<Content: View>(showsNavigationBar: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self._router = State(initialValue: Router(showsNavigationBar: showsNavigationBar, root: content))
     }
 
     public init(router: Router) {
@@ -23,46 +23,39 @@ public struct ViewNavigationWrapper: View {
         NavigationStack(path: $router.path) {
             router.rootView
                 .environment(router)
-                .environment(createNavigationInformation(isPushed: false))
+                .environment(router.navigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in
                     wrapper.contentView
                         .background(BackSwipeConfigurator(isEnabled: wrapper.allowsBackSwipe))
-                        .toolbar(.hidden, for: .navigationBar)
+                        // Native bar is opt-in per screen: hidden by default (custom-header
+                        // behavior), `.automatic` when the screen asked for the native bar so
+                        // its own .navigationTitle/.toolbar/back button work.
+                        .toolbar(wrapper.showsNavigationBar ? .automatic : .hidden, for: .navigationBar)
                         .environment(router)
-                        .environment(
-                            createNavigationInformation(
-                                isPushed: true
-                            )
-                        )
+                        .environment(router.navigationInformation(isPushed: true))
                 }
-                .toolbar(.hidden, for: .navigationBar)
+                .toolbar(router.showsNavigationBar ? .automatic : .hidden, for: .navigationBar)
         }
-        .fullScreenCover(item: $router.fullScreenDestination, onDismiss: { [weak router] in
-            router?.onFullScreenDismiss?()
-            router?.onFullScreenDismiss = nil
+        .fullScreenCover(item: $router.fullScreenDestination, onDismiss: {
+            // Fire-once dismiss callback, then drain any presentation queued while busy.
+            router.fireFullScreenDismiss()
+            router.drainPendingPresentation()
         }) { wrapper in
             ViewNavigationWrapper(router: wrapper)
+                .applyPresentationConfiguration(wrapper.presentationConfiguration)
         }
-        .sheet(item: $router.sheetDestination, onDismiss: { [weak router] in
-            router?.onSheetDismiss?()
-            router?.onSheetDismiss = nil
+        .sheet(item: $router.sheetDestination, onDismiss: {
+            router.fireSheetDismiss()
+            router.drainPendingPresentation()
         }) { wrapper in
             ViewNavigationWrapper(router: wrapper)
+                .applyPresentationConfiguration(wrapper.presentationConfiguration)
         }
-        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             NavigationLogger.debug("ViewNavigationWrapper appeared - hasParent=\(router.parent != nil)")
         }
         .onDisappear {
             NavigationLogger.debug("ViewNavigationWrapper disappeared - hasParent=\(router.parent != nil)")
         }
-    }
-
-    private func createNavigationInformation(isPushed: Bool) -> NavigationInformations {
-        return NavigationInformations(
-            isPushed: isPushed,
-            isPresenting: router.parent != nil,
-            navigationType: router.parent == nil ? .root : router.parent?.fullScreenDestination != nil ? .present : .sheet
-        )
     }
 }

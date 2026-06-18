@@ -9,7 +9,7 @@ import SwiftUI
 
 @MainActor
 @Observable
-public class Router: Identifiable, Sendable {
+public class Router: Identifiable {
     public let id = UUID().uuidString
     /// Deferred root view construction — only evaluated when SwiftUI renders
     private var _makeRoot: @MainActor @Sendable () -> AnyView
@@ -20,6 +20,28 @@ public class Router: Identifiable, Sendable {
     var sheetDestination: Router?
     @ObservationIgnored
     var onSheetDismiss: (() -> Void)?
+
+    /// Whether this router's ROOT view shows the native navigation bar.
+    /// Default `false` preserves the library's custom-header behavior; set `true`
+    /// to get native `.navigationTitle`/`.toolbar`/back button back for the root.
+    @ObservationIgnored
+    let showsNavigationBar: Bool
+
+    /// How this router was presented (sheet detents, drag indicator, interactive
+    /// dismissal). Empty for the app's root router; set by the presenting parent.
+    @ObservationIgnored
+    var presentationConfiguration: PresentationConfiguration = .init()
+
+    /// A presentation requested while another was already in flight. Drained by the
+    /// view layer once the current presentation finishes dismissing (see `drainPendingPresentation`).
+    @ObservationIgnored
+    private var pendingPresentation: (() -> Void)?
+
+    // Cached, immutable navigation-info objects — avoids re-allocating a fresh
+    // @Observable instance on every body render, which would churn the environment
+    // identity and force every consumer to re-render.
+    @ObservationIgnored private var _rootNavigationInformation: NavigationInformations?
+    @ObservationIgnored private var _pushedNavigationInformation: NavigationInformations?
 
     var rootViewID: UUID = UUID()
 
@@ -50,9 +72,11 @@ public class Router: Identifiable, Sendable {
 
     public init<Content: View>(
         parent: Router? = nil,
+        showsNavigationBar: Bool = false,
         @ViewBuilder root: @escaping () -> Content
     ) {
         self.parent = parent
+        self.showsNavigationBar = showsNavigationBar
         self._makeRoot = { AnyView(root()) }
         self.rootViewID = UUID()
         startOperationProcessor()
@@ -107,6 +131,7 @@ public class Router: Identifiable, Sendable {
         // Clear all callbacks to break potential retain cycles
         onFullScreenDismiss = nil
         onSheetDismiss = nil
+        pendingPresentation = nil
 
         // CRITICAL: Clear root view to break environment capture
         // The AnyView captures the entire environment including this router
@@ -123,7 +148,7 @@ public class Router: Identifiable, Sendable {
     }
 
     // MARK: - Navigation API
-    public func push<Content: View>(allowBackSwipe: Bool = true, @ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+    public func push<Content: View>(allowBackSwipe: Bool = true, showsNavigationBar: Bool = false, @ViewBuilder _ destination: @escaping @Sendable () -> Content) {
         let dest = destination
         executeOperation { [weak self] in
             guard let self else {
@@ -134,6 +159,7 @@ public class Router: Identifiable, Sendable {
 
             let wrapper = DestinationWrapper(
                 allowsBackSwipe: allowBackSwipe,
+                showsNavigationBar: showsNavigationBar,
                 content: dest
             )
             self.path.append(wrapper)
@@ -164,23 +190,18 @@ public class Router: Identifiable, Sendable {
                 self.replaceRootWithAnimation(dest)
                 NavigationLogger.debug("replacingPush - replaced root (path was empty)")
             } else {
-                // Push new view, then remove the old top
-                // Before append: path = [A, B, C] (C is current top)
-                // After append:  path = [A, B, C, D]
-                // Remove at count-2: removes C → path = [A, B, D] ✓
-                self.path.append(DestinationWrapper(content: dest))
-                let removeIndex = self.path.count - 2
-                guard removeIndex >= 0 else {
-                    NavigationLogger.warning("replacingPush - unexpected state, removeIndex=\(removeIndex)")
-                    return
-                }
-                self.path.remove(at: removeIndex)
-                NavigationLogger.debug("replacingPush - replaced top, path count=\(self.path.count)")
+                // Replace the current top in place — a single mutation.
+                // Avoids the transient [A, B, C, D] state (double animation) of an
+                // append-then-remove, and always targets the *live* top index, so it
+                // stays correct even if SwiftUI mutated the path (system back / swipe)
+                // between queued operations.
+                self.path[self.path.count - 1] = DestinationWrapper(content: dest)
+                NavigationLogger.debug("replacingPush - replaced top in place, path count=\(self.path.count)")
             }
         }
     }
 
-    public func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping () -> Content) {
+    public func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping @Sendable () -> Content) {
         executeOperation { [weak self] in
             self?.replaceRootWithAnimation(destination)
         }
@@ -213,7 +234,12 @@ public class Router: Identifiable, Sendable {
     }
 
     // MARK: - Sheets & Covers
-    public func present<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
+    public func present<Content: View>(
+        configuration: PresentationConfiguration = .init(),
+        @ViewBuilder _ destination: @escaping @Sendable () -> Content,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        let dest = destination
         executeOperation { [weak self] in
             guard let self else {
                 NavigationLogger.error("PRESENT - Router is nil, operation cancelled")
@@ -221,18 +247,29 @@ public class Router: Identifiable, Sendable {
             }
 
             guard !self.isPresenting else {
-                self.logAlreadyPresenting()
+                // Don't silently drop the request (and its onDismiss) — queue it to
+                // fire automatically once the current presentation is dismissed.
+                NavigationLogger.debug("PRESENT - busy, queuing until current presentation dismisses")
+                self.pendingPresentation = { [weak self] in
+                    self?.present(configuration: configuration, dest, onDismiss: onDismiss)
+                }
                 return
             }
 
             NavigationLogger.debug("PRESENT - hasParent=\(self.parent != nil) - Setting fullscreen")
             self.onFullScreenDismiss = onDismiss
-            let newRouter = Router(parent: self, root: destination)
+            let newRouter = Router(parent: self, root: dest)
+            newRouter.presentationConfiguration = configuration
             self.fullScreenDestination = newRouter
         }
     }
 
-    public func sheet<Content: View>(@ViewBuilder _ destination: @escaping () -> Content, onDismiss: (() -> Void)? = nil) {
+    public func sheet<Content: View>(
+        configuration: PresentationConfiguration = .init(),
+        @ViewBuilder _ destination: @escaping @Sendable () -> Content,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        let dest = destination
         executeOperation { [weak self] in
             guard let self else {
                 NavigationLogger.error("SHEET - Router is nil, operation cancelled")
@@ -240,13 +277,19 @@ public class Router: Identifiable, Sendable {
             }
 
             guard !self.isPresenting else {
-                self.logAlreadyPresenting()
+                // Don't silently drop the request (and its onDismiss) — queue it to
+                // fire automatically once the current presentation is dismissed.
+                NavigationLogger.debug("SHEET - busy, queuing until current presentation dismisses")
+                self.pendingPresentation = { [weak self] in
+                    self?.sheet(configuration: configuration, dest, onDismiss: onDismiss)
+                }
                 return
             }
 
             NavigationLogger.debug("SHEET - hasParent=\(self.parent != nil) - Setting sheet")
             self.onSheetDismiss = onDismiss
-            let newRouter = Router(parent: self, root: destination)
+            let newRouter = Router(parent: self, root: dest)
+            newRouter.presentationConfiguration = configuration
             self.sheetDestination = newRouter
         }
     }
@@ -285,10 +328,15 @@ public class Router: Identifiable, Sendable {
                 return
             }
 
+            // Clear the destination we own directly, on our own queue. The view layer
+            // fires the matching onDismiss and drains any queued presentation. (Previously
+            // this hopped onto the child's separate queue, which could race a replacement.)
             if self.sheetDestination != nil {
-                self.sheetDestination?.dismiss()
+                self.sheetDestination = nil
+                NavigationLogger.debug("DISMISS_PRESENTED - Cleared own sheet")
             } else if self.fullScreenDestination != nil {
-                self.fullScreenDestination?.dismiss()
+                self.fullScreenDestination = nil
+                NavigationLogger.debug("DISMISS_PRESENTED - Cleared own fullscreen")
             } else {
                 NavigationLogger.warning("DISMISS_PRESENTED - No presented view to dismiss")
             }
@@ -299,11 +347,18 @@ public class Router: Identifiable, Sendable {
         executeOperation { [weak self] in
             guard let self else { return }
 
-            self.sheetDestination = nil
-            self.fullScreenDestination = nil
-            if let parent = self.parent {
-                parent.dismissToRoot()
-            }
+            // Walk to the absolute root and clear in a SINGLE operation (mirrors
+            // resetToRoot) instead of cascading across each ancestor's separate queue,
+            // which could interleave with other queued ops. Child routers deallocate
+            // automatically when the root's destination becomes nil.
+            var root: Router = self
+            while let parent = root.parent { root = parent }
+
+            root.fireSubtreeDismissCallbacks()
+            root.pendingPresentation = nil
+            root.sheetDestination = nil
+            root.fullScreenDestination = nil
+            // NOTE: unlike resetToRoot, each level's push path is intentionally preserved.
         }
     }
 
@@ -328,6 +383,11 @@ public class Router: Identifiable, Sendable {
                 root = parent
             }
 
+            // Fire any pending dismiss callbacks across the whole presented subtree
+            // (exactly-once) before tearing it down, so they aren't silently dropped.
+            root.fireSubtreeDismissCallbacks()
+            root.pendingPresentation = nil
+
             // Clear from root — child routers dealloc automatically
             root.sheetDestination = nil
             root.fullScreenDestination = nil
@@ -341,36 +401,93 @@ public class Router: Identifiable, Sendable {
 
 // MARK: - ViewDestination Support
 extension Router {
-    /// Push a ViewDestination-conforming route (enum routing)
-    public func push<D: ViewDestination>(_ destination: D, allowBackSwipe: Bool = true) {
+    /// Push a ViewDestination-conforming route (enum routing).
+    ///
+    /// `body` is evaluated here on the main actor (this method is `@MainActor`) and
+    /// the resulting view value is handed to the `@Sendable` builder closure. The
+    /// `nonisolated(unsafe)` is sound by construction: the view is built on the main
+    /// actor and only ever read back on the main actor at render time.
+    public func push<D: ViewDestination>(_ destination: D, allowBackSwipe: Bool = true, showsNavigationBar: Bool = false) {
         nonisolated(unsafe) let body = destination.body
-        push(allowBackSwipe: allowBackSwipe) { body }
+        push(allowBackSwipe: allowBackSwipe, showsNavigationBar: showsNavigationBar) { body }
     }
 
     /// Present a ViewDestination-conforming route as fullscreen
-    public func present<D: ViewDestination>(_ destination: D, onDismiss: (() -> Void)? = nil) {
+    public func present<D: ViewDestination>(_ destination: D, configuration: PresentationConfiguration = .init(), onDismiss: (() -> Void)? = nil) {
         nonisolated(unsafe) let body = destination.body
-        present({ body }, onDismiss: onDismiss)
+        present(configuration: configuration, { body }, onDismiss: onDismiss)
     }
 
     /// Present a ViewDestination-conforming route as sheet
-    public func sheet<D: ViewDestination>(_ destination: D, onDismiss: (() -> Void)? = nil) {
+    public func sheet<D: ViewDestination>(_ destination: D, configuration: PresentationConfiguration = .init(), onDismiss: (() -> Void)? = nil) {
         nonisolated(unsafe) let body = destination.body
-        sheet({ body }, onDismiss: onDismiss)
+        sheet(configuration: configuration, { body }, onDismiss: onDismiss)
     }
 }
 
+// MARK: - Navigation information (cached)
 extension Router {
-    fileprivate func logAlreadyPresenting() {
-        if sheetDestination != nil {
-            NavigationLogger.error("PRESENT - Router already presenting a sheet, cannot present another view")
-            return
+    /// Returns the cached, immutable `NavigationInformations` for this router.
+    /// Cached so the environment value keeps a stable identity across body renders
+    /// (a fresh instance every render would invalidate every consumer needlessly).
+    func navigationInformation(isPushed: Bool) -> NavigationInformations {
+        if isPushed {
+            if let info = _pushedNavigationInformation { return info }
+            let info = makeNavigationInformation(isPushed: true)
+            _pushedNavigationInformation = info
+            return info
+        } else {
+            if let info = _rootNavigationInformation { return info }
+            let info = makeNavigationInformation(isPushed: false)
+            _rootNavigationInformation = info
+            return info
         }
+    }
 
-        if fullScreenDestination != nil {
-            NavigationLogger.error("PRESENT - Router already presenting a fullscreen cover, cannot present another view")
-            return
-        }
+    private func makeNavigationInformation(isPushed: Bool) -> NavigationInformations {
+        NavigationInformations(
+            isPushed: isPushed,
+            isPresenting: parent != nil,
+            navigationType: parent == nil
+                ? .root
+                : (parent?.fullScreenDestination != nil ? .present : .sheet)
+        )
+    }
+}
+
+// MARK: - Dismiss callbacks & pending presentations
+extension Router {
+    /// Fires and clears the full-screen dismiss callback. Idempotent: safe to call
+    /// from both the programmatic teardown path and SwiftUI's `onDismiss`, so the
+    /// user's callback runs exactly once regardless of how the cover was dismissed.
+    func fireFullScreenDismiss() {
+        let callback = onFullScreenDismiss
+        onFullScreenDismiss = nil
+        callback?()
+    }
+
+    /// Fires and clears the sheet dismiss callback. Idempotent (see `fireFullScreenDismiss`).
+    func fireSheetDismiss() {
+        let callback = onSheetDismiss
+        onSheetDismiss = nil
+        callback?()
+    }
+
+    /// Fires dismiss callbacks for the entire presented subtree before a bulk teardown
+    /// (resetToRoot / dismissToRoot), so no level's `onDismiss` is silently dropped.
+    func fireSubtreeDismissCallbacks() {
+        fullScreenDestination?.fireSubtreeDismissCallbacks()
+        sheetDestination?.fireSubtreeDismissCallbacks()
+        fireFullScreenDismiss()
+        fireSheetDismiss()
+    }
+
+    /// Presents a request that was queued while another presentation was in flight.
+    /// Called by the view layer once the current presentation has fully dismissed.
+    func drainPendingPresentation() {
+        guard let pending = pendingPresentation else { return }
+        pendingPresentation = nil
+        pending()
     }
 }
 

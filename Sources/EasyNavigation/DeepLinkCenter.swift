@@ -45,7 +45,7 @@ import SwiftUI
 /// ```
 @Observable
 @MainActor
-public final class DeepLinkCenter: Sendable {
+public final class DeepLinkCenter {
     private weak var rootRouter: Router?
     @ObservationIgnored
     private var handler: (@MainActor @Sendable (URL) -> AnyView?)?
@@ -105,8 +105,9 @@ public final class DeepLinkCenter: Sendable {
 
     /// Clear all pending deep links without delivering them.
     public func clearPending() {
+        let count = pendingURLs.count
         pendingURLs.removeAll()
-        NavigationLogger.debug("DEEPLINK - Cleared \(pendingURLs.count) pending URLs")
+        NavigationLogger.debug("DEEPLINK - Cleared \(count) pending URLs")
     }
 
     // MARK: - Private
@@ -117,12 +118,14 @@ public final class DeepLinkCenter: Sendable {
             return
         }
 
-        // Dismiss any existing presentation to make room for deep link
+        // Dismiss any existing presentation to make room for deep link.
+        // Fire the existing onDismiss callbacks (instead of silently dropping them)
+        // before replacing the destination.
         if router.isPresenting {
+            router.fireSheetDismiss()
+            router.fireFullScreenDismiss()
             router.sheetDestination = nil
             router.fullScreenDestination = nil
-            router.onSheetDismiss = nil
-            router.onFullScreenDismiss = nil
             NavigationLogger.debug("DEEPLINK - Dismissed existing presentation")
         }
 
