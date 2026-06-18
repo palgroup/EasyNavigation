@@ -11,15 +11,20 @@ import SwiftUI
 public struct DestinationWrapper: Identifiable, Hashable {
     public let id = UUID()
     let allowsBackSwipe: Bool
+    /// Whether this pushed screen shows the native navigation bar.
+    /// Default `false` keeps the library's custom-header behavior.
+    let showsNavigationBar: Bool
 
     /// Deferred view construction — only evaluated when SwiftUI renders
     private let _makeContent: @MainActor @Sendable () -> AnyView
 
     init<Content: View>(
         allowsBackSwipe: Bool = true,
+        showsNavigationBar: Bool = false,
         @ViewBuilder content: @escaping @MainActor @Sendable () -> Content
     ) {
         self.allowsBackSwipe = allowsBackSwipe
+        self.showsNavigationBar = showsNavigationBar
         self._makeContent = { AnyView(content()) }
     }
 

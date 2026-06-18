@@ -29,6 +29,12 @@ struct BackSwipeConfigurator: UIViewControllerRepresentable {
 final class BackSwipeProxyController: UIViewController, UIGestureRecognizerDelegate {
     var isSwipeEnabled: Bool = true
 
+    /// SwiftUI's original pop-gesture delegate, preserved so we can restore it on
+    /// teardown instead of leaving the shared navigation controller's `weak` delegate
+    /// dangling (which would fall back to nil and break the gesture).
+    private weak var originalGestureDelegate: UIGestureRecognizerDelegate?
+    private weak var configuredNavigationController: UINavigationController?
+
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
         updateGesture()
@@ -39,10 +45,28 @@ final class BackSwipeProxyController: UIViewController, UIGestureRecognizerDeleg
         updateGesture()
     }
 
+    override func willMove(toParent parent: UIViewController?) {
+        super.willMove(toParent: parent)
+        // When removed, hand the gesture's delegate back to SwiftUI rather than
+        // leaving it pointed at a controller that's going away.
+        if parent == nil,
+           let gesture = configuredNavigationController?.interactivePopGestureRecognizer,
+           gesture.delegate === self {
+            gesture.delegate = originalGestureDelegate
+        }
+    }
+
     func updateGesture() {
-        guard let nav = findNavigationController() else { return }
-        nav.interactivePopGestureRecognizer?.delegate = self
-        nav.interactivePopGestureRecognizer?.isEnabled = isSwipeEnabled
+        guard let nav = findNavigationController(),
+              let gesture = nav.interactivePopGestureRecognizer else { return }
+        configuredNavigationController = nav
+        // Capture SwiftUI's delegate once, then install ourselves so the back-swipe
+        // keeps working even with the navigation bar hidden (the library's intent).
+        if gesture.delegate !== self {
+            originalGestureDelegate = gesture.delegate
+            gesture.delegate = self
+        }
+        gesture.isEnabled = isSwipeEnabled
     }
 
     private func findNavigationController() -> UINavigationController? {
