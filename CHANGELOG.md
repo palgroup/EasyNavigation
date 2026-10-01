@@ -2,6 +2,29 @@
 
 All notable changes to EasyNavigation are documented here.
 
+## [2.6.0] — 2026-10-01
+
+### Changed
+
+- **`RouterWrapper` and `NavigationWrapper` no longer crash in Xcode previews
+  when there is no `Router` in the environment.** A screen previewed on its own
+  gets a detached router: it renders, and navigating from it does nothing.
+  - *Why:* every screen that read the router needed its preview wrapped in a
+    `ViewNavigationWrapper` just to render, or the canvas crashed with SwiftUI's
+    generic "No Observable object of type Router found".
+- **In the app, a missing router now stops with a message that names the fix**
+  ("the view is outside every navigation wrapper … put it under
+  ViewNavigationWrapper") instead of SwiftUI's generic crash. The app still
+  stops: a view whose navigation silently does nothing would be a worse bug.
+- `NavigationWrapper` falls back to the router's root navigation information
+  when none is in the environment.
+
+### Added
+
+- `MissingRouter` (internal): the decision above in one place, with tests.
+
+**Verification:** 56 tests / 7 suites pass on the iOS 26.5 simulator.
+
 ## [2.5.0] — 2026-06-18
 
 This release is the outcome of a multi-axis deep-dive review of **2.4.4**

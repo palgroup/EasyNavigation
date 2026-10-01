@@ -1,5 +1,5 @@
 //
-//  RouterDecorator.swift
+//  NavigationWrapper.swift
 //  EasyNavigation
 //
 //  Created by Salihcan Kahya on 7.10.2025.
@@ -12,18 +12,26 @@ public struct Navigation {
     public let information: NavigationInformations
 }
 
+/// The nearest `Router` together with how the view was reached (pushed,
+/// presented, root).
+///
+///     @NavigationWrapper private var navigation
+///
+/// Behaves like `RouterWrapper` when there is no router in the environment.
 @propertyWrapper
 public struct NavigationWrapper: DynamicProperty {
     @Environment(Router.self)
-    private var routerInstance
-    
+    private var routerInstance: Router?
+
     @Environment(NavigationInformations.self)
-    private var navigationInformationsInstance
-    
+    private var navigationInformationsInstance: NavigationInformations?
+
     public init() {}
-    
-    /// View içinde `@RouterDecorator private var router` dediğinde bu değer gelecek
+
+    @MainActor
     public var wrappedValue: Navigation {
-        Navigation(router: routerInstance, information: navigationInformationsInstance)
+        let router = MissingRouter.resolve(routerInstance, in: "NavigationWrapper")
+        let information = navigationInformationsInstance ?? router.navigationInformation(isPushed: false)
+        return Navigation(router: router, information: information)
     }
 }

@@ -7,15 +7,22 @@
 
 import SwiftUI
 
+/// The nearest `Router`, read from the environment.
+///
+///     @RouterWrapper private var router
+///
+/// Outside every navigation wrapper it does not crash in an Xcode preview (it
+/// hands out a detached router) and stops with a clear message in the app.
+/// See `MissingRouter`.
 @propertyWrapper
 public struct RouterWrapper: DynamicProperty {
     @Environment(Router.self)
-    private var routerInstance
-    
+    private var routerInstance: Router?
+
     public init() {}
-    
-    /// View içinde `@RouterDecorator private var router` dediğinde bu değer gelecek
+
+    @MainActor
     public var wrappedValue: Router {
-        routerInstance
+        MissingRouter.resolve(routerInstance, in: "RouterWrapper")
     }
 }
