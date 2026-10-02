@@ -33,10 +33,10 @@ struct RouterPropertyWrapperTests {
         #expect(router.isBackSwipeAllowed == false)
     }
 
-    @Test("A ViewDestination push goes to the router, with its options")
-    func destinationPush() async {
+    @Test("A builder push goes to the router, with its options")
+    func builderPush() async {
         let (router, base) = makeRouter()
-        router.push(ProbeRoute.detail, allowBackSwipe: false, showsNavigationBar: true)
+        router.push(allowBackSwipe: false, showsNavigationBar: true) { ProbeBuilder.build() }
         await waitForRouterOperations()
         #expect(base.path.count == 1)
         #expect(base.path.last?.allowsBackSwipe == false)
@@ -46,9 +46,9 @@ struct RouterPropertyWrapperTests {
     @Test("pop removes the top screen, popToRoot all of them")
     func popAndPopToRoot() async {
         let (router, base) = makeRouter()
-        router.push(ProbeRoute.detail)
-        router.push(ProbeRoute.detail)
-        router.push(ProbeRoute.detail)
+        router.push { ProbeBuilder.build() }
+        router.push { ProbeBuilder.build() }
+        router.push { ProbeBuilder.build() }
         await waitForRouterOperations(count: 3)
         router.pop()
         await waitForRouterOperations()
@@ -61,11 +61,11 @@ struct RouterPropertyWrapperTests {
     @Test("replacingPush replaces the top screen in place")
     func replacingPush() async {
         let (router, base) = makeRouter()
-        router.push(ProbeRoute.detail)
-        router.push(ProbeRoute.detail)
+        router.push { ProbeBuilder.build() }
+        router.push { ProbeBuilder.build() }
         await waitForRouterOperations(count: 2)
         let top = base.path.last?.id
-        router.replacingPush { Text("Replacement") }
+        router.replacingPush { ProbeBuilder.build() }
         await waitForRouterOperations()
         #expect(base.path.count == 2)
         #expect(base.path.last?.id != top)
@@ -74,10 +74,10 @@ struct RouterPropertyWrapperTests {
     @Test("removeAllPush clears the path and replaces the root")
     func removeAllPush() async {
         let (router, base) = makeRouter()
-        router.push(ProbeRoute.detail)
+        router.push { ProbeBuilder.build() }
         await waitForRouterOperations()
         let root = base.rootViewID
-        router.removeAllPush { Text("New root") }
+        router.removeAllPush { ProbeBuilder.build() }
         await waitForRouterOperations()
         #expect(base.path.isEmpty)
         #expect(base.rootViewID != root)
@@ -85,11 +85,11 @@ struct RouterPropertyWrapperTests {
 
     // MARK: - Sheets and covers
 
-    @Test("A ViewDestination sheet is a sheet, with its configuration and onDismiss")
-    func destinationSheet() async {
+    @Test("A builder sheet is a sheet, with its configuration and onDismiss")
+    func builderSheet() async {
         let (router, base) = makeRouter()
         var dismissed = false
-        router.sheet(ProbeRoute.detail, configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true })
+        router.sheet(configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true }) { ProbeBuilder.build() }
         await waitForRouterOperations()
         #expect(base.sheetDestination != nil)
         #expect(base.fullScreenDestination == nil)
@@ -103,7 +103,7 @@ struct RouterPropertyWrapperTests {
     func closureSheet() async {
         let (router, base) = makeRouter()
         var dismissed = false
-        router.sheet(configuration: .init(interactiveDismissDisabled: true), { Text("S") }, onDismiss: { dismissed = true })
+        router.sheet(configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true }) { Text("S") }
         await waitForRouterOperations()
         #expect(base.sheetDestination != nil)
         #expect(base.fullScreenDestination == nil)
@@ -112,11 +112,11 @@ struct RouterPropertyWrapperTests {
         #expect(dismissed)
     }
 
-    @Test("A ViewDestination present is a full-screen cover, with its configuration and onDismiss")
-    func destinationPresent() async {
+    @Test("A builder present is a full-screen cover, with its configuration and onDismiss")
+    func builderPresent() async {
         let (router, base) = makeRouter()
         var dismissed = false
-        router.present(ProbeRoute.detail, configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true })
+        router.present(configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true }) { ProbeBuilder.build() }
         await waitForRouterOperations()
         #expect(base.fullScreenDestination != nil)
         #expect(base.sheetDestination == nil)
@@ -129,7 +129,7 @@ struct RouterPropertyWrapperTests {
     func closurePresent() async {
         let (router, base) = makeRouter()
         var dismissed = false
-        router.present(configuration: .init(interactiveDismissDisabled: true), { Text("P") }, onDismiss: { dismissed = true })
+        router.present(configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true }) { Text("P") }
         await waitForRouterOperations()
         #expect(base.fullScreenDestination != nil)
         #expect(base.sheetDestination == nil)
@@ -141,7 +141,7 @@ struct RouterPropertyWrapperTests {
     @Test("dismissPresented closes what this router presented")
     func dismissPresented() async {
         let (router, base) = makeRouter()
-        router.sheet(ProbeRoute.detail)
+        router.sheet { ProbeBuilder.build() }
         await waitForRouterOperations()
         router.dismissPresented()
         await waitForRouterOperations()
@@ -152,7 +152,7 @@ struct RouterPropertyWrapperTests {
     @Test("dismiss closes the presentation this router is in")
     func dismiss() async throws {
         let (router, base) = makeRouter()
-        router.sheet(ProbeRoute.detail)
+        router.sheet { ProbeBuilder.build() }
         await waitForRouterOperations()
         let child = try #require(base.sheetDestination)
         Router(child).dismiss()
@@ -163,8 +163,8 @@ struct RouterPropertyWrapperTests {
     @Test("dismissToRoot closes every presentation and keeps the pushes")
     func dismissToRoot() async throws {
         let (router, base) = makeRouter()
-        router.push(ProbeRoute.detail)
-        router.sheet(ProbeRoute.detail)
+        router.push { ProbeBuilder.build() }
+        router.sheet { ProbeBuilder.build() }
         await waitForRouterOperations(count: 2)
         let child = try #require(base.sheetDestination)
         Router(child).dismissToRoot()
@@ -176,8 +176,8 @@ struct RouterPropertyWrapperTests {
     @Test("resetToRoot closes every presentation and clears the pushes")
     func resetToRoot() async throws {
         let (router, base) = makeRouter()
-        router.push(ProbeRoute.detail)
-        router.sheet(ProbeRoute.detail)
+        router.push { ProbeBuilder.build() }
+        router.sheet { ProbeBuilder.build() }
         await waitForRouterOperations(count: 2)
         let child = try #require(base.sheetDestination)
         Router(child).resetToRoot()
@@ -213,7 +213,7 @@ struct RouterPropertyWrapperTests {
         await render(ViewNavigationWrapper(router: router), until: recorder)
         #expect(recorder.router === router.resolved)
 
-        router.push(ProbeRoute.detail)
+        router.push { ProbeBuilder.build() }
         await waitForRouterOperations()
         #expect(router.path.count == 1)
         #expect(recorder.router?.path.count == 1)
@@ -240,10 +240,10 @@ struct RouterPropertyWrapperTests {
     }
 }
 
-private enum ProbeRoute: ViewDestination {
-    case detail
-
-    var body: some View {
+/// A screen's builder as an app writes it: isolated to the main actor.
+@MainActor
+private enum ProbeBuilder {
+    static func build() -> some View {
         Text("Detail")
     }
 }

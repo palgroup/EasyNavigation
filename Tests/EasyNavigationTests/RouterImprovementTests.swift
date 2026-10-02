@@ -5,22 +5,18 @@
 //  Covers the fixes from the deep-dive audit: cached navigation info (R1),
 //  in-place replacingPush (R2/R3), queued presentations (R4), direct
 //  dismissPresented (R5), fire-once dismiss callbacks (R6), per-screen native
-//  bar opt-in (N1), presentation configuration (N3), and ViewDestination routing (C1).
+//  bar opt-in (N1), presentation configuration (N3), and main-actor destination closures (C1).
 //
 
 import Testing
 import SwiftUI
 @testable import EasyNavigation
 
-private enum TestRoute: ViewDestination {
-    case profile
-    case settings
-
-    var body: some View {
-        switch self {
-        case .profile: Text("Profile")
-        case .settings: Text("Settings")
-        }
+/// A screen's builder as an app writes it: isolated to the main actor.
+@MainActor
+private enum ProfileBuilder {
+    static func build(name: String) -> some View {
+        Text(name)
     }
 }
 
@@ -106,7 +102,7 @@ struct RouterImprovementTests {
     func fireDismissOnce() async {
         let router = _Router { EmptyView() }
         var count = 0
-        router.present({ Text("Modal") }, onDismiss: { count += 1 })
+        router.present(onDismiss: { count += 1 }) { Text("Modal") }
         await waitForRouterOperations()
 
         router.fireFullScreenDismiss()
@@ -122,7 +118,7 @@ struct RouterImprovementTests {
         center.setRootRouter(Router(router))
 
         var dismissed = false
-        router.sheet({ Text("Existing") }, onDismiss: { dismissed = true })
+        router.sheet(onDismiss: { dismissed = true }) { Text("Existing") }
         await waitForRouterOperations()
         #expect(router.sheetDestination != nil)
 
@@ -172,18 +168,61 @@ struct RouterImprovementTests {
         #expect(router.isPresenting == false)
     }
 
-    // MARK: - C1: ViewDestination (enum) routing without nonisolated(unsafe)
+    // MARK: - C1: destination closures run on the main actor
 
-    @Test("ViewDestination push and present work")
-    func viewDestinationRouting() async {
+    // Compiles only because the closures are `@MainActor`: a main-actor builder
+    // cannot be called from a plain `@Sendable` closure in Swift 6.
+    @Test("A main-actor builder is called straight from push, sheet and present")
+    func mainActorBuilderInClosures() async {
         let router = _Router { EmptyView() }
-        router.push(TestRoute.profile)
+        router.push { ProfileBuilder.build(name: "Pushed") }
         await waitForRouterOperations()
         #expect(router.path.count == 1)
 
-        router.present(TestRoute.settings)
+        router.sheet { ProfileBuilder.build(name: "Sheet") }
+        await waitForRouterOperations()
+        #expect(router.sheetDestination != nil)
+        router.dismissPresented()
+        await waitForRouterOperations()
+
+        router.present { ProfileBuilder.build(name: "Cover") }
         await waitForRouterOperations()
         #expect(router.fullScreenDestination != nil)
+
+        let pushed = router.path.last?.id
+        router.replacingPush { ProfileBuilder.build(name: "Replaced") }
+        await waitForRouterOperations()
+        #expect(router.path.count == 1)
+        #expect(router.path.last?.id != pushed)
+
+        let root = router.rootViewID
+        router.removeAllPush { ProfileBuilder.build(name: "New root") }
+        await waitForRouterOperations()
+        #expect(router.path.isEmpty)
+        #expect(router.rootViewID != root)
+    }
+
+    @Test("A sheet requested while busy is queued with its configuration and onDismiss")
+    func pendingSheetKeepsItsOptions() async {
+        let router = _Router { EmptyView() }
+        router.present { Text("First") }
+        await waitForRouterOperations()
+        let first = router.fullScreenDestination
+
+        var dismissed = false
+        router.sheet(configuration: .init(interactiveDismissDisabled: true), onDismiss: { dismissed = true }) {
+            ProfileBuilder.build(name: "Queued")
+        }
+        await waitForRouterOperations()
+        #expect(router.sheetDestination == nil)
+
+        first?.dismiss()
+        await waitForRouterOperations()
+        router.drainPendingPresentation()
+        await waitForRouterOperations()
+        #expect(router.sheetDestination?.presentationConfiguration.interactiveDismissDisabled == true)
+        router.fireSheetDismiss()
+        #expect(dismissed)
     }
 
     // MARK: - dismissToRoot from a nested child (single-operation rewrite)

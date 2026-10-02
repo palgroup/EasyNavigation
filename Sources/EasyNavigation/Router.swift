@@ -6,9 +6,12 @@
 //
 //      @Router private var router
 //
-//      router.push(NoteRoute.detail(id: note.id))
-//      router.sheet(NoteRoute.editor, onDismiss: reload)
+//      router.push { NoteDetailBuilder.build(id: note.id) }
+//      router.sheet(onDismiss: reload) { NoteEditorBuilder.build() }
 //      router.pop()
+//
+//  The destination closures run on the main actor, so a main-actor builder
+//  is called in them directly.
 //
 //  `Router` is the property wrapper and its own value. It reads the nearest
 //  navigation stack's `_Router` from the environment and passes every call on
@@ -100,25 +103,21 @@ extension Router {
 
 @MainActor
 extension Router {
-    public func push<D: ViewDestination>(_ destination: D, allowBackSwipe: Bool = true, showsNavigationBar: Bool = false) {
-        resolved.push(destination, allowBackSwipe: allowBackSwipe, showsNavigationBar: showsNavigationBar)
-    }
-
     public func push<Content: View>(
         allowBackSwipe: Bool = true,
         showsNavigationBar: Bool = false,
-        @ViewBuilder _ destination: @escaping @Sendable () -> Content
+        @ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content
     ) {
         resolved.push(allowBackSwipe: allowBackSwipe, showsNavigationBar: showsNavigationBar, destination)
     }
 
     /// Replaces the screen on top (the root when nothing is pushed).
-    public func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+    public func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content) {
         resolved.replacingPush(destination)
     }
 
     /// Clears the path and makes `destination` the new root.
-    public func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+    public func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content) {
         resolved.removeAllPush(destination)
     }
 
@@ -135,38 +134,21 @@ extension Router {
 
 @MainActor
 extension Router {
-    public func sheet<D: ViewDestination>(
-        _ destination: D,
-        configuration: PresentationConfiguration = .init(),
-        onDismiss: (() -> Void)? = nil
-    ) {
-        resolved.sheet(destination, configuration: configuration, onDismiss: onDismiss)
-    }
-
     public func sheet<Content: View>(
         configuration: PresentationConfiguration = .init(),
-        @ViewBuilder _ destination: @escaping @Sendable () -> Content,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content
     ) {
-        resolved.sheet(configuration: configuration, destination, onDismiss: onDismiss)
-    }
-
-    /// Presents full screen.
-    public func present<D: ViewDestination>(
-        _ destination: D,
-        configuration: PresentationConfiguration = .init(),
-        onDismiss: (() -> Void)? = nil
-    ) {
-        resolved.present(destination, configuration: configuration, onDismiss: onDismiss)
+        resolved.sheet(configuration: configuration, onDismiss: onDismiss, destination)
     }
 
     /// Presents full screen.
     public func present<Content: View>(
         configuration: PresentationConfiguration = .init(),
-        @ViewBuilder _ destination: @escaping @Sendable () -> Content,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content
     ) {
-        resolved.present(configuration: configuration, destination, onDismiss: onDismiss)
+        resolved.present(configuration: configuration, onDismiss: onDismiss, destination)
     }
 
     /// Dismisses the sheet or cover this view is in.

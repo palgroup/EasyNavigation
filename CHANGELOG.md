@@ -2,6 +2,52 @@
 
 All notable changes to EasyNavigation are documented here.
 
+## [4.0.0] — 2026-10-02
+
+### Breaking
+
+- **Navigation takes a closure that builds the destination, and the closure
+  runs on the main actor.** `push`, `replacingPush`, `removeAllPush`, `sheet`
+  and `present` take `@MainActor @Sendable` closures, so a screen's builder —
+  main-actor code in a Swift 6 app — is called in them directly:
+
+      router.push { NoteDetailBuilder.build(id: note.id) }
+      router.sheet(onDismiss: reload) { NoteEditorBuilder.build() }
+
+  - *Why:* with plain `@Sendable` closures, calling a main-actor builder inside
+    them did not compile, which is what pushed apps to `ViewDestination` route
+    enums. The enum added a type per feature and nothing else: the router
+    turned it into a view at once.
+- **`ViewDestination` and `ViewDestinationRepresentable` are removed**, with
+  the `push(_:)`, `sheet(_:)` and `present(_:)` overloads that took them.
+- **`sheet` and `present` take the destination last**, after `configuration`
+  and `onDismiss`, as SwiftUI's own `.sheet(isPresented:onDismiss:content:)`
+  does — so the closure can trail.
+- **The destination is built when it is first drawn**, not when `push` is
+  called (the 3.x route overloads evaluated `body` at the call). It is built
+  once per destination, on the main actor. This matters only for a builder
+  with side effects.
+
+### Migration from 3.x
+
+| 3.x | 4.0 |
+|-----|-----|
+| `router.push(AppRoute.profile(id: id))` | `router.push { ProfileBuilder.build(id: id) }` |
+| `router.sheet(AppRoute.editor, onDismiss: reload)` | `router.sheet(onDismiss: reload) { EditorBuilder.build() }` |
+| `router.present(AppRoute.paywall)` | `router.present { PaywallBuilder.build() }` |
+| `router.sheet({ Editor() }, onDismiss: reload)` | `router.sheet(onDismiss: reload) { Editor() }` |
+| `router.sheet { Editor() } onDismiss: { reload() }` | `router.sheet(onDismiss: { reload() }) { Editor() }` |
+| `router.present({ Editor() }) { reload() }` | `router.present(onDismiss: { reload() }) { Editor() }` |
+| `enum AppRoute: ViewDestination { … }` | delete it — or keep it as plain code: drop the conformance, mark `body` `@MainActor @ViewBuilder var body: some View`, and write `router.push { AppRoute.profile(id: id).body }` |
+
+Every old call shape fails to compile with 4.0 rather than doing something
+else; the compiler points at each one.
+
+**Verification:** 74 tests / 8 suites pass on the iOS 26.5 simulator. Every
+navigation closure — on the internal router and on the public `Router` — is
+called with a main-actor builder in a test, which compiles only because the
+closures are `@MainActor`.
+
 ## [3.0.0] — 2026-10-02
 
 ### Breaking

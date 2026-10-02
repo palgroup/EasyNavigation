@@ -153,7 +153,7 @@ final class _Router: Identifiable {
     }
 
     // MARK: - Navigation API
-    func push<Content: View>(allowBackSwipe: Bool = true, showsNavigationBar: Bool = false, @ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+    func push<Content: View>(allowBackSwipe: Bool = true, showsNavigationBar: Bool = false, @ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content) {
         let dest = destination
         executeOperation { [weak self] in
             guard let self else {
@@ -182,7 +182,7 @@ final class _Router: Identifiable {
         }
     }
 
-    func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+    func replacingPush<Content: View>(@ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content) {
         let dest = destination
         executeOperation { [weak self] in
             guard let self else {
@@ -206,7 +206,7 @@ final class _Router: Identifiable {
         }
     }
 
-    func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping @Sendable () -> Content) {
+    func removeAllPush<Content: View>(@ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content) {
         executeOperation { [weak self] in
             self?.replaceRootWithAnimation(destination)
         }
@@ -241,8 +241,8 @@ final class _Router: Identifiable {
     // MARK: - Sheets & Covers
     func present<Content: View>(
         configuration: PresentationConfiguration = .init(),
-        @ViewBuilder _ destination: @escaping @Sendable () -> Content,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content
     ) {
         let dest = destination
         executeOperation { [weak self] in
@@ -256,7 +256,7 @@ final class _Router: Identifiable {
                 // fire automatically once the current presentation is dismissed.
                 NavigationLogger.debug("PRESENT - busy, queuing until current presentation dismisses")
                 self.pendingPresentation = { [weak self] in
-                    self?.present(configuration: configuration, dest, onDismiss: onDismiss)
+                    self?.present(configuration: configuration, onDismiss: onDismiss, dest)
                 }
                 return
             }
@@ -271,8 +271,8 @@ final class _Router: Identifiable {
 
     func sheet<Content: View>(
         configuration: PresentationConfiguration = .init(),
-        @ViewBuilder _ destination: @escaping @Sendable () -> Content,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder _ destination: @escaping @MainActor @Sendable () -> Content
     ) {
         let dest = destination
         executeOperation { [weak self] in
@@ -286,7 +286,7 @@ final class _Router: Identifiable {
                 // fire automatically once the current presentation is dismissed.
                 NavigationLogger.debug("SHEET - busy, queuing until current presentation dismisses")
                 self.pendingPresentation = { [weak self] in
-                    self?.sheet(configuration: configuration, dest, onDismiss: onDismiss)
+                    self?.sheet(configuration: configuration, onDismiss: onDismiss, dest)
                 }
                 return
             }
@@ -403,32 +403,6 @@ final class _Router: Identifiable {
     }
 }
 
-
-// MARK: - ViewDestination Support
-extension _Router {
-    /// Push a ViewDestination-conforming route (enum routing).
-    ///
-    /// `body` is evaluated here on the main actor (this method is `@MainActor`) and
-    /// the resulting view value is handed to the `@Sendable` builder closure. The
-    /// `nonisolated(unsafe)` is sound by construction: the view is built on the main
-    /// actor and only ever read back on the main actor at render time.
-    func push<D: ViewDestination>(_ destination: D, allowBackSwipe: Bool = true, showsNavigationBar: Bool = false) {
-        nonisolated(unsafe) let body = destination.body
-        push(allowBackSwipe: allowBackSwipe, showsNavigationBar: showsNavigationBar) { body }
-    }
-
-    /// Present a ViewDestination-conforming route as fullscreen
-    func present<D: ViewDestination>(_ destination: D, configuration: PresentationConfiguration = .init(), onDismiss: (() -> Void)? = nil) {
-        nonisolated(unsafe) let body = destination.body
-        present(configuration: configuration, { body }, onDismiss: onDismiss)
-    }
-
-    /// Present a ViewDestination-conforming route as sheet
-    func sheet<D: ViewDestination>(_ destination: D, configuration: PresentationConfiguration = .init(), onDismiss: (() -> Void)? = nil) {
-        nonisolated(unsafe) let body = destination.body
-        sheet(configuration: configuration, { body }, onDismiss: onDismiss)
-    }
-}
 
 // MARK: - Navigation information (cached)
 extension _Router {
