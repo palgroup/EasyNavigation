@@ -35,8 +35,8 @@ import SwiftUI
 ///     return nil
 /// }
 ///
-/// // 3. Connect router (usually in your root view's .onAppear)
-/// deepLinkCenter.setRootRouter(router)
+/// // 3. Connect the router — in the root screen, which reads it with `@Router`
+/// .onAppear { deepLinkCenter.setRootRouter(router) }
 ///
 /// // 4. Handle incoming URLs
 /// .onOpenURL { url in
@@ -46,7 +46,7 @@ import SwiftUI
 @Observable
 @MainActor
 public final class DeepLinkCenter {
-    private weak var rootRouter: Router?
+    private weak var rootRouter: _Router?
     @ObservationIgnored
     private var handler: (@MainActor @Sendable (URL) -> AnyView?)?
     private var pendingURLs: [URL] = []
@@ -56,7 +56,7 @@ public final class DeepLinkCenter {
     /// Set the root router used for presenting deep link sheets.
     /// Automatically delivers any pending deep links.
     public func setRootRouter(_ router: Router) {
-        self.rootRouter = router
+        self.rootRouter = router.resolved
         deliverPending()
     }
 
@@ -112,7 +112,7 @@ public final class DeepLinkCenter {
 
     // MARK: - Private
 
-    private func deliver(_ url: URL, to router: Router) {
+    private func deliver(_ url: URL, to router: _Router) {
         guard let view = handler?(url) else {
             NavigationLogger.debug("DEEPLINK - Handler returned nil for: \(url.absoluteString)")
             return
@@ -130,7 +130,7 @@ public final class DeepLinkCenter {
         }
 
         // Present as sheet with its own NavigationStack
-        let newRouter = Router(parent: router) { view }
+        let newRouter = _Router(parent: router) { view }
         router.sheetDestination = newRouter
         NavigationLogger.debug("DEEPLINK - Presented sheet for: \(url.absoluteString)")
     }

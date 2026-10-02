@@ -32,7 +32,7 @@ struct RouterImprovementTests {
 
     @Test("navigationInformation returns a stable cached instance")
     func navInfoCached() {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         let root1 = router.navigationInformation(isPushed: false)
         let root2 = router.navigationInformation(isPushed: false)
         let pushed1 = router.navigationInformation(isPushed: true)
@@ -50,7 +50,7 @@ struct RouterImprovementTests {
 
     @Test("replacingPush replaces only the top element's identity")
     func replacingPushIdentity() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.push { Text("A") }
         router.push { Text("B") }
         router.push { Text("C") }
@@ -72,7 +72,7 @@ struct RouterImprovementTests {
 
     @Test("push carries the showsNavigationBar flag")
     func pushShowsNavBarFlag() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.push(showsNavigationBar: true) { Text("A") }
         await waitForRouterOperations()
         #expect(router.path.last?.showsNavigationBar == true)
@@ -84,15 +84,15 @@ struct RouterImprovementTests {
 
     @Test("root showsNavigationBar defaults to false and is configurable")
     func rootShowsNavBar() {
-        #expect(Router { EmptyView() }.showsNavigationBar == false)
-        #expect(Router(showsNavigationBar: true) { EmptyView() }.showsNavigationBar == true)
+        #expect(_Router { EmptyView() }.showsNavigationBar == false)
+        #expect(_Router(showsNavigationBar: true) { EmptyView() }.showsNavigationBar == true)
     }
 
     // MARK: - N3: presentation configuration stored on the presented child
 
     @Test("present stores presentation configuration on the child")
     func presentStoresConfiguration() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         let config = PresentationConfiguration(detents: [.medium], interactiveDismissDisabled: true)
         router.present(configuration: config) { Text("Sheet") }
         await waitForRouterOperations()
@@ -104,7 +104,7 @@ struct RouterImprovementTests {
 
     @Test("fireFullScreenDismiss is idempotent")
     func fireDismissOnce() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         var count = 0
         router.present({ Text("Modal") }, onDismiss: { count += 1 })
         await waitForRouterOperations()
@@ -118,8 +118,8 @@ struct RouterImprovementTests {
     func deepLinkFiresOldDismiss() async {
         let center = DeepLinkCenter()
         center.register { (url: URL) -> Text? in Text("Deep") }
-        let router = Router { EmptyView() }
-        center.setRootRouter(router)
+        let router = _Router { EmptyView() }
+        center.setRootRouter(Router(router))
 
         var dismissed = false
         router.sheet({ Text("Existing") }, onDismiss: { dismissed = true })
@@ -135,7 +135,7 @@ struct RouterImprovementTests {
 
     @Test("second presentation is queued and drained after dismiss")
     func pendingPresentationDrains() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("First") }
         await waitForRouterOperations()
         let firstChild = router.fullScreenDestination
@@ -161,7 +161,7 @@ struct RouterImprovementTests {
 
     @Test("dismissPresented clears the router's own presentation")
     func dismissPresentedClearsOwn() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.sheet { Text("Sheet") }
         await waitForRouterOperations()
         #expect(router.sheetDestination != nil)
@@ -176,7 +176,7 @@ struct RouterImprovementTests {
 
     @Test("ViewDestination push and present work")
     func viewDestinationRouting() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.push(TestRoute.profile)
         await waitForRouterOperations()
         #expect(router.path.count == 1)
@@ -190,7 +190,7 @@ struct RouterImprovementTests {
 
     @Test("dismissToRoot from a nested child clears all presentations")
     func dismissToRootFromNested() async {
-        let root = Router { EmptyView() }
+        let root = _Router { EmptyView() }
         root.present { Text("L1") }
         await waitForRouterOperations()
         guard let l1 = root.fullScreenDestination else { Issue.record("no L1"); return }

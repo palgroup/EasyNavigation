@@ -13,7 +13,7 @@ struct RouterPresentationTests {
 
     @Test("present sets fullScreenDestination")
     func presentSetsFullScreen() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("Modal") }
         await waitForRouterOperations()
         #expect(router.fullScreenDestination != nil)
@@ -22,7 +22,7 @@ struct RouterPresentationTests {
 
     @Test("present creates child with parent reference")
     func presentCreatesChildWithParent() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("Modal") }
         await waitForRouterOperations()
         #expect(router.fullScreenDestination?.parent === router)
@@ -30,7 +30,7 @@ struct RouterPresentationTests {
 
     @Test("sheet sets sheetDestination")
     func sheetSetsDestination() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.sheet { Text("Sheet") }
         await waitForRouterOperations()
         #expect(router.sheetDestination != nil)
@@ -39,7 +39,7 @@ struct RouterPresentationTests {
 
     @Test("double present is blocked")
     func doublePresentBlocked() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("First") }
         await waitForRouterOperations()
 
@@ -52,7 +52,7 @@ struct RouterPresentationTests {
 
     @Test("dismiss clears parent fullScreen")
     func dismissClearsParentFullScreen() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("Modal") }
         await waitForRouterOperations()
 
@@ -68,7 +68,7 @@ struct RouterPresentationTests {
 
     @Test("dismiss clears parent sheet")
     func dismissClearsParentSheet() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.sheet { Text("Sheet") }
         await waitForRouterOperations()
 
@@ -84,7 +84,7 @@ struct RouterPresentationTests {
 
     @Test("dismiss without parent is no-op")
     func dismissWithoutParentNoOp() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.dismiss()
         await waitForRouterOperations()
         #expect(router.path.isEmpty)
@@ -92,7 +92,7 @@ struct RouterPresentationTests {
 
     @Test("isPresenting reflects state correctly")
     func isPresentingReflectsState() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         #expect(router.isPresenting == false)
 
         router.present { Text("Modal") }

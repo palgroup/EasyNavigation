@@ -9,13 +9,20 @@ import SwiftUI
 
 @MainActor
 public struct ViewNavigationWrapper: View {
-    @State var router: Router
+    @State var router: _Router
 
     public init<Content: View>(showsNavigationBar: Bool = false, @ViewBuilder content: @escaping () -> Content) {
-        self._router = State(initialValue: Router(showsNavigationBar: showsNavigationBar, root: content))
+        self._router = State(initialValue: _Router(showsNavigationBar: showsNavigationBar, root: content))
     }
 
+    /// A stack for a router the caller owns (`Router { … }`), so the caller
+    /// can read the stack's state and navigate it from outside.
     public init(router: Router) {
+        self.init(router: router.resolved)
+    }
+
+    /// A stack for a router that already exists — a presented sheet or cover.
+    init(router: _Router) {
         self._router = State(initialValue: router)
     }
 

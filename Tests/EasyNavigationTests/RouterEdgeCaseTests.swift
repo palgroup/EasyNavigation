@@ -13,7 +13,7 @@ struct RouterEdgeCaseTests {
 
     @Test("replacingPush on empty path replaces root")
     func replacingPushEmptyPath() async {
-        let router = Router { Text("Original") }
+        let router = _Router { Text("Original") }
         let originalRootID = router.rootViewID
         router.replacingPush { Text("Replaced") }
         await waitForRouterOperations()
@@ -23,7 +23,7 @@ struct RouterEdgeCaseTests {
 
     @Test("replacingPush on single element path does not crash")
     func replacingPushSingleElement() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.push { Text("A") }
         await waitForRouterOperations()
         #expect(router.path.count == 1)
@@ -36,7 +36,7 @@ struct RouterEdgeCaseTests {
 
     @Test("replacingPush on multiple elements replaces top only")
     func replacingPushMultipleElements() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.push { Text("A") }
         await waitForRouterOperations()
         router.push { Text("B") }
@@ -53,7 +53,7 @@ struct RouterEdgeCaseTests {
 
     @Test("cleanup breaks retain cycles")
     func cleanupBreaksRetainCycles() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("Modal") }
         await waitForRouterOperations()
         #expect(router.fullScreenDestination != nil)
@@ -66,7 +66,7 @@ struct RouterEdgeCaseTests {
 
     @Test("cleanup cancels processing task")
     func cleanupCancelsProcessing() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.cleanup()
         // Push after cleanup — should be no-op since continuation is finished
         router.push { Text("A") }
@@ -76,7 +76,7 @@ struct RouterEdgeCaseTests {
 
     @Test("rapid push does not corrupt path")
     func rapidPush() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         for i in 0..<20 {
             router.push { Text("View \(i)") }
         }
@@ -86,7 +86,7 @@ struct RouterEdgeCaseTests {
 
     @Test("rapid pop does not corrupt path")
     func rapidPop() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         for i in 0..<10 {
             router.push { Text("View \(i)") }
         }
@@ -102,7 +102,7 @@ struct RouterEdgeCaseTests {
 
     @Test("present while already presenting sheet is blocked")
     func presentWhilePresentingSheetBlocked() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.sheet { Text("Sheet") }
         await waitForRouterOperations()
         #expect(router.sheetDestination != nil)
@@ -116,7 +116,7 @@ struct RouterEdgeCaseTests {
 
     @Test("dismissToRoot clears all presentations")
     func dismissToRootClearsAll() async {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         router.present { Text("Level 1") }
         await waitForRouterOperations()
 

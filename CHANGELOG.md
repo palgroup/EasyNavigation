@@ -2,6 +2,61 @@
 
 All notable changes to EasyNavigation are documented here.
 
+## [3.0.0] — 2026-10-02
+
+### Breaking
+
+- **A view reads its router only with `@Router`.** `Router` is now the property
+  wrapper — and its own value, so calls look the same as before:
+
+      @Router private var router
+      router.push(AppRoute.profile(id: "123"))
+
+  The class behind it is internal (`_Router`), so `@Environment(Router.self)`
+  can no longer be written.
+  - *Why:* reading the environment by hand skipped the missing-router
+    handling: a screen previewed on its own crashed the canvas, and the app
+    crashed with SwiftUI's generic message. `RouterWrapper` was a second name
+    for the same thing. Now every read handles a missing router — a detached
+    router in a preview, a stop with a message in the app. (`@NavigationWrapper`
+    still exists for the router together with how the view was reached; it
+    behaves the same way.)
+- `RouterWrapper` is removed.
+- `Router` is a value, not an object: it is no longer `Identifiable` or
+  `Observable`, has no `id`, cannot be compared with `===`, held `weak`, or put
+  in the environment with `.environment(router)`. It is `Sendable`.
+- `Navigation.router` is a `Router`.
+- `cleanup()` is no longer public.
+
+### Changed
+
+- The missing-router stop is a `fatalError` (a `preconditionFailure` drops its
+  message in optimized builds) and its message no longer points to
+  `TypedNavigationWrapper` / `SplitNavigationWrapper`, which provide no router.
+
+### Migration from 2.x
+
+| 2.x | 3.0 |
+|-----|-----|
+| `@Environment(Router.self) var router` | `@Router private var router` |
+| `@RouterWrapper private var router` | `@Router private var router` |
+| `@State var router = Router { Root() }` + `ViewNavigationWrapper(router: router)` | unchanged — a container may still own a stack's router and read `router.path` / `router.isPresenting` from outside it |
+| `deepLinkCenter.setRootRouter(router)` | unchanged — pass the owned router, or the root screen's `@Router` in `.onAppear` |
+| `.environment(router)` on a view outside the stack (a window overlay) | pass `router` to the view's initializer |
+| `weak var router: Router?` | hold the `Router` value; it keeps the stack's router alive, so do not store it in an object the stack's root captures |
+
+Everything called on the router — `push`, `replacingPush`, `removeAllPush`,
+`pop`, `popToRoot`, `sheet`, `present`, `dismiss`, `dismissPresented`,
+`dismissToRoot`, `resetToRoot`, `path`, `isPresenting`, `isBackSwipeAllowed` —
+is unchanged.
+
+A screen previewed on its own needs no `ViewNavigationWrapper`; it renders, and
+navigating from it does nothing. Wrap a preview only to try navigation in it.
+
+**Verification:** 73 tests / 8 suites pass on the iOS 26.5 simulator. The
+`@Router` suite covers every forwarded call with its options, reading the stack
+the view is in, an owned router, and the preview fallback.
+
 ## [2.6.0] — 2026-10-01
 
 ### Changed

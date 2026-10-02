@@ -24,8 +24,13 @@ struct MissingRouterTests {
 
     @Test("A router in the environment is always used as-is")
     func environmentRouterWins() {
-        let router = Router { EmptyView() }
+        let router = _Router { EmptyView() }
         #expect(MissingRouter.resolve(router, in: "Test") === router)
+    }
+
+    @Test("With no router, a preview resolves to the detached router")
+    func previewResolvesToDetachedRouter() {
+        #expect(MissingRouter.resolve(nil, in: "Test", isRunningForPreviews: true) === MissingRouter.detached)
     }
 
     @Test("The detached router is a root with an empty path")

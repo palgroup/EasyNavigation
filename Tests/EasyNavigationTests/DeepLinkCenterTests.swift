@@ -27,8 +27,8 @@ struct DeepLinkCenterTests {
     @Test("handle presents sheet on root router")
     func handlePresentsSheet() async {
         let center = makeCenter()
-        let router = Router { EmptyView() }
-        center.setRootRouter(router)
+        let router = _Router { EmptyView() }
+        center.setRootRouter(Router(router))
 
         center.handle(URL(string: "myapp://profile/123")!)
         #expect(router.sheetDestination != nil)
@@ -37,8 +37,8 @@ struct DeepLinkCenterTests {
     @Test("handle with unmatched URL does nothing")
     func handleUnmatchedURL() async {
         let center = makeCenter()
-        let router = Router { EmptyView() }
-        center.setRootRouter(router)
+        let router = _Router { EmptyView() }
+        center.setRootRouter(Router(router))
 
         center.handle(URL(string: "myapp://unknown")!)
         #expect(router.sheetDestination == nil)
@@ -64,8 +64,8 @@ struct DeepLinkCenterTests {
         center.handle(URL(string: "myapp://profile/1")!)
         center.handle(URL(string: "myapp://profile/2")!)
 
-        let router = Router { EmptyView() }
-        center.setRootRouter(router)
+        let router = _Router { EmptyView() }
+        center.setRootRouter(Router(router))
 
         // Only latest should be delivered
         #expect(router.sheetDestination != nil)
@@ -86,11 +86,11 @@ struct DeepLinkCenterTests {
     @Test("handle dismisses existing sheet before presenting")
     func dismissesExistingSheet() async {
         let center = makeCenter()
-        let router = Router { EmptyView() }
-        center.setRootRouter(router)
+        let router = _Router { EmptyView() }
+        center.setRootRouter(Router(router))
 
         // Open an existing sheet
-        router.sheetDestination = Router(parent: router) { Text("Old") }
+        router.sheetDestination = _Router(parent: router) { Text("Old") }
         #expect(router.isPresenting)
 
         // Deep link should replace it
@@ -102,11 +102,11 @@ struct DeepLinkCenterTests {
     @Test("handle dismisses existing fullscreen before presenting")
     func dismissesExistingFullscreen() async {
         let center = makeCenter()
-        let router = Router { EmptyView() }
-        center.setRootRouter(router)
+        let router = _Router { EmptyView() }
+        center.setRootRouter(Router(router))
 
         // Open an existing fullscreen
-        router.fullScreenDestination = Router(parent: router) { Text("Old") }
+        router.fullScreenDestination = _Router(parent: router) { Text("Old") }
         #expect(router.isPresenting)
 
         // Deep link should dismiss fullscreen and open sheet
@@ -137,8 +137,8 @@ struct DeepLinkCenterTests {
         let center = makeCenter()
 
         // Create router in inner scope
-        var router: Router? = Router { EmptyView() }
-        center.setRootRouter(router!)
+        var router: _Router? = _Router { EmptyView() }
+        center.setRootRouter(Router(router!))
 
         // Release router
         router = nil
