@@ -29,6 +29,13 @@ public struct ViewNavigationWrapper: View {
     public var body: some View {
         NavigationStack(path: $router.path) {
             router.rootView
+                // A root swap (`replacingPush` on an empty path, `removeAllPush`)
+                // is a new view, not new content in the old one: it crossfades in
+                // the `withAnimation` the router wraps it in. Without the id the
+                // old root's identity carried the new content and the screen cut
+                // in one frame.
+                .id(router.rootViewID)
+                .transition(.opacity)
                 .environment(router)
                 .environment(router.navigationInformation(isPushed: false))
                 .navigationDestination(for: DestinationWrapper.self) { wrapper in

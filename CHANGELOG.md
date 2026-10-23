@@ -2,6 +2,25 @@
 
 All notable changes to EasyNavigation are documented here.
 
+## [4.0.1] — 2026-10-24
+
+### Fixed
+
+- **A root swap crossfades instead of cutting.** `replacingPush` on an empty
+  path and `removeAllPush` replace the stack's root inside
+  `withAnimation(.default)`, but `ViewNavigationWrapper` drew every root under
+  one identity: the new root took the old one's place in a single frame. The
+  root now carries `rootViewID` as its identity, with an opacity transition,
+  so the old root fades out and the new one fades in, in place.
+  - *Measured* (iOS 26.4 simulator, 20 ms frames, Flokk's onboarding name →
+    layover step): before, one frame from the old screen to the new; after, a
+    crossfade over ~160 ms, no slide. A `.transition` on the app's own view
+    did nothing — the identity has to change where the root is drawn.
+
+**Verification:** 74 tests / 8 suites pass on the iOS 26.4 simulator. The
+crossfade is a rendering change the tests do not draw; it was measured on the
+simulator as above.
+
 ## [4.0.0] — 2026-10-02
 
 ### Breaking
